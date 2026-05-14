@@ -7,13 +7,16 @@ import {
   ArrowRight,
   Bell,
   Bot,
+  Bug,
   Check,
   Code2,
   CreditCard,
   Crown,
   Eye,
   FilePlus2,
+  FileText,
   FolderKanban,
+  GitBranch,
   Home,
   Layers3,
   LockKeyhole,
@@ -21,6 +24,7 @@ import {
   Mail,
   Menu,
   MessageSquareText,
+  PanelBottom,
   Palette,
   Play,
   Rocket,
@@ -31,6 +35,7 @@ import {
   SlidersHorizontal,
   Smartphone,
   Sparkles,
+  Search,
   TerminalSquare,
   UsersRound,
   UserRound,
@@ -79,7 +84,9 @@ const languageOptions = [
   { id: 'powershell', label: 'PowerShell', extension: 'ps1' },
   { id: 'vbscript', label: 'VBScript', extension: 'vbs' },
   { id: 'html', label: 'HTML', extension: 'html' },
-  { id: 'css', label: 'CSS', extension: 'css' }
+  { id: 'css', label: 'CSS', extension: 'css' },
+  { id: 'json', label: 'JSON', extension: 'json' },
+  { id: 'markdown', label: 'Markdown', extension: 'md' }
 ];
 
 const libraryOptions = {
@@ -96,7 +103,9 @@ const libraryOptions = {
   powershell: ['Admin Script', 'Automation Runbook', 'Deployment Script'],
   vbscript: ['Windows Script', 'Office Automation', 'Logon Script'],
   html: ['Vanilla HTML', 'PWA Page', 'Static Landing'],
-  css: ['Plain CSS', 'CSS Modules', 'Design Tokens']
+  css: ['Plain CSS', 'CSS Modules', 'Design Tokens'],
+  json: ['Config', 'Manifest', 'API Schema'],
+  markdown: ['Documentation', 'Changelog', 'Specification']
 };
 
 const defaultChatMessages = [
@@ -129,13 +138,6 @@ const defaultWorkspace = {
   lastPrompt: '',
   lastRunAt: null
 };
-
-const files = [
-  { name: 'App.jsx', type: 'React screen', size: '12 KB' },
-  { name: 'aiPrompt.js', type: 'Prompt logic', size: '4 KB' },
-  { name: 'theme.css', type: 'Design tokens', size: '7 KB' },
-  { name: 'manifest.json', type: 'PWA config', size: '2 KB' }
-];
 
 const plans = [
   {
@@ -223,7 +225,9 @@ function getFileName(languageId, library) {
     ruby: library === 'Rails Controller' ? 'projects_controller.rb' : 'app.rb',
     sql: library === 'SQLite Queries' ? 'queries.sql' : 'schema.sql',
     powershell: 'build-workspace.ps1',
-    vbscript: 'automation.vbs'
+    vbscript: 'automation.vbs',
+    json: library === 'Manifest' ? 'manifest.json' : 'project.json',
+    markdown: 'README.md'
   };
 
   if (fileNames[languageId]) {
@@ -544,6 +548,33 @@ Next`;
 }`;
   }
 
+  if (language === 'json') {
+    return `{
+  "name": "${cleanTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-')}",
+  "title": "${cleanTitle}",
+  "status": "draft",
+  "generatedBy": "Code On The Go",
+  "features": ["ai", "code-editor", "preview", "files"]
+}`;
+  }
+
+  if (language === 'markdown') {
+    return `# ${cleanTitle}
+
+Built with Code On The Go.
+
+## Scope
+
+- Plan the software workflow
+- Generate starter code
+- Edit files manually
+- Preview and ship the project
+
+## Stack
+
+${library}`;
+  }
+
   if (language === 'typescript') {
     return `type Feature = {
   id: number;
@@ -624,17 +655,137 @@ app.innerHTML = \`
 }`;
 }
 
+function getFileType(language, library) {
+  return `${getLanguage(language).label} / ${library}`;
+}
+
+function getFileSize(code = '') {
+  const bytes = new Blob([code]).size;
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  return `${(bytes / 1024).toFixed(1)} KB`;
+}
+
+function createWorkspaceFile({ id, name, type, language, library, code, createdAt, updatedAt }) {
+  const timestamp = createdAt ?? getNow();
+
+  return {
+    id,
+    name,
+    type: type ?? getFileType(language, library),
+    language,
+    library,
+    code,
+    createdAt: timestamp,
+    updatedAt: updatedAt ?? timestamp
+  };
+}
+
+function createDefaultWorkspaceFiles(workspace, language, library) {
+  const createdAt = workspace.createdAt ?? getNow();
+  const mainName = workspace.fileName ?? getFileName(language, library);
+  const mainCode = typeof workspace.code === 'string' ? workspace.code : defaultWorkspace.code;
+
+  return [
+    createWorkspaceFile({
+      id: 'file-main',
+      name: mainName,
+      type: getFileType(language, library),
+      language,
+      library,
+      code: mainCode,
+      createdAt
+    }),
+    createWorkspaceFile({
+      id: 'file-theme',
+      name: 'theme.css',
+      type: 'Design tokens',
+      language: 'css',
+      library: 'Design Tokens',
+      code: `:root {
+  --brand: #7c3aed;
+  --accent: #3b82f6;
+  --surface: rgba(255, 255, 255, 0.82);
+}
+
+.workspace {
+  color: var(--brand);
+  background: var(--surface);
+}`,
+      createdAt
+    }),
+    createWorkspaceFile({
+      id: 'file-readme',
+      name: 'README.md',
+      type: 'Documentation',
+      language: 'markdown',
+      library: 'Documentation',
+      code: `# Code On The Go Project
+
+Use AI Mode to generate software, Code Mode to edit files, and Preview Mode to inspect the current build.`,
+      createdAt
+    }),
+    createWorkspaceFile({
+      id: 'file-config',
+      name: 'project.json',
+      type: 'Project config',
+      language: 'json',
+      library: 'Config',
+      code: `{
+  "name": "code-on-the-go-project",
+  "workspace": "mobile-ide",
+  "status": "draft"
+}`,
+      createdAt
+    })
+  ];
+}
+
+function normalizeWorkspaceFiles(workspace, language, library) {
+  const sourceFiles = Array.isArray(workspace.files) && workspace.files.length
+    ? workspace.files
+    : createDefaultWorkspaceFiles(workspace, language, library);
+
+  return sourceFiles.map((file, index) => {
+    const fileLanguage = libraryOptions[file.language] ? file.language : language;
+    const libraries = libraryOptions[fileLanguage] ?? libraryOptions.javascript;
+    const fileLibrary = libraries.includes(file.library) ? file.library : libraries[0];
+    const code = typeof file.code === 'string' ? file.code : '';
+
+    return createWorkspaceFile({
+      id: file.id ?? `file-${index + 1}`,
+      name: file.name ?? getFileName(fileLanguage, fileLibrary),
+      type: file.type ?? getFileType(fileLanguage, fileLibrary),
+      language: fileLanguage,
+      library: fileLibrary,
+      code,
+      createdAt: file.createdAt,
+      updatedAt: file.updatedAt
+    });
+  });
+}
+
 function normalizeWorkspace(workspace = {}) {
   const language = workspace.language ?? defaultWorkspace.language;
   const libraries = libraryOptions[language] ?? libraryOptions.javascript;
   const library = libraries.includes(workspace.library) ? workspace.library : libraries[0];
+  const files = normalizeWorkspaceFiles(workspace, language, library);
+  const activeFile =
+    files.find((file) => file.id === workspace.activeFileId) ??
+    files.find((file) => file.name === workspace.fileName) ??
+    files[0];
 
   return {
     ...defaultWorkspace,
     ...workspace,
-    language,
-    library,
-    fileName: workspace.fileName ?? getFileName(language, library),
+    language: activeFile.language,
+    library: activeFile.library,
+    fileName: activeFile.name,
+    code: activeFile.code,
+    files,
+    activeFileId: activeFile.id,
     chatMessages: workspace.chatMessages?.length ? workspace.chatMessages : defaultChatMessages
   };
 }
@@ -982,6 +1133,17 @@ function App() {
     }));
   };
 
+  const updateActiveFile = (patch) =>
+    workspace.files.map((file) =>
+      file.id === workspace.activeFileId
+        ? {
+            ...file,
+            ...patch,
+            updatedAt: getNow()
+          }
+        : file
+    );
+
   const handleWorkspaceStackChange = ({ language, library }) => {
     const libraries = libraryOptions[language] ?? libraryOptions.javascript;
     const nextLibrary = library ?? libraries[0];
@@ -990,12 +1152,19 @@ function App() {
     updateWorkspace({
       language,
       library: nextLibrary,
-      fileName: nextFileName
+      fileName: nextFileName,
+      files: updateActiveFile({
+        name: nextFileName,
+        type: getFileType(language, nextLibrary),
+        language,
+        library: nextLibrary
+      })
     });
   };
 
   const handleAiPrompt = (prompt) => {
     const generatedCode = buildGeneratedCode(prompt, workspace.language, workspace.library);
+    const nextFileName = getFileName(workspace.language, workspace.library);
     const aiMessage = `I generated ${workspace.library} ${getLanguage(workspace.language).label} code and placed it in Code Mode. You can keep editing it manually.`;
 
     setAppData((current) => ({
@@ -1004,7 +1173,14 @@ function App() {
         ...current.workspace,
         code: generatedCode,
         lastPrompt: prompt,
-        fileName: getFileName(workspace.language, workspace.library),
+        fileName: nextFileName,
+        files: updateActiveFile({
+          name: nextFileName,
+          type: getFileType(workspace.language, workspace.library),
+          language: workspace.language,
+          library: workspace.library,
+          code: generatedCode
+        }),
         chatMessages: [
           ...(current.workspace?.chatMessages ?? defaultChatMessages),
           { from: 'user', text: prompt },
@@ -1026,12 +1202,61 @@ function App() {
   };
 
   const handleManualCodeChange = (code) => {
-    updateWorkspace({ code });
+    updateWorkspace({
+      code,
+      files: updateActiveFile({ code })
+    });
   };
 
   const handleRunCode = () => {
     updateWorkspace({ lastRunAt: getNow() });
     appendActivity({ type: 'code', message: `${currentUser?.name ?? 'A user'} previewed ${workspace.fileName}.` });
+  };
+
+  const handleOpenFile = (fileId, openCode = true) => {
+    const file = workspace.files.find((candidate) => candidate.id === fileId);
+    if (!file) {
+      return;
+    }
+
+    updateWorkspace({
+      activeFileId: file.id,
+      language: file.language,
+      library: file.library,
+      fileName: file.name,
+      code: file.code
+    });
+
+    if (openCode) {
+      setActiveScreen('code');
+    }
+  };
+
+  const handleCreateFile = () => {
+    const language = workspace.language;
+    const library = workspace.library;
+    const extension = getLanguage(language).extension;
+    const fileNumber = workspace.files.length + 1;
+    const newFile = createWorkspaceFile({
+      id: createId('file'),
+      name: `untitled-${fileNumber}.${extension}`,
+      type: getFileType(language, library),
+      language,
+      library,
+      code: language === 'markdown' ? '# New file\n' : '',
+      createdAt: getNow()
+    });
+
+    updateWorkspace({
+      files: [newFile, ...workspace.files],
+      activeFileId: newFile.id,
+      language,
+      library,
+      fileName: newFile.name,
+      code: newFile.code
+    });
+    setActiveScreen('code');
+    appendActivity({ type: 'file', message: `${currentUser?.name ?? 'A user'} created ${newFile.name}.` });
   };
 
   return (
@@ -1102,10 +1327,18 @@ function App() {
               onCodeChange={handleManualCodeChange}
               onStackChange={handleWorkspaceStackChange}
               onRunCode={handleRunCode}
+              onSelectFile={(fileId) => handleOpenFile(fileId, false)}
+              onCreateFile={handleCreateFile}
             />
           )}
           {activeView === 'app' && activeScreen === 'preview' && <PreviewScreen workspace={workspace} />}
-          {activeView === 'app' && activeScreen === 'files' && <FilesScreen />}
+          {activeView === 'app' && activeScreen === 'files' && (
+            <FilesScreen
+              workspace={workspace}
+              onOpenFile={(fileId) => handleOpenFile(fileId, true)}
+              onCreateFile={handleCreateFile}
+            />
+          )}
         </div>
         {activeView === 'app' && <BottomNav activeScreen={activeScreen} onChange={setActiveScreen} />}
       </section>
@@ -1943,49 +2176,148 @@ function AiScreen({ workspace, onPrompt, onStackChange, onOpenCode }) {
   );
 }
 
-function CodeScreen({ workspace, onCodeChange, onStackChange, onRunCode }) {
+function CodeScreen({ workspace, onCodeChange, onStackChange, onRunCode, onSelectFile, onCreateFile }) {
   const lineCount = workspace.code.split('\n').length;
+  const activeFile = workspace.files.find((file) => file.id === workspace.activeFileId) ?? workspace.files[0];
+  const terminalLines = [
+    `> codego run ${workspace.fileName}`,
+    `${getLanguage(workspace.language).label} workspace ready`,
+    `${workspace.library} selected`,
+    workspace.lastRunAt ? 'Last run completed successfully' : 'No active errors'
+  ];
 
   return (
-    <section className="screen code-screen">
-      <div className="editor-toolbar">
-        <div>
-          <p className="eyebrow">Code Mode</p>
-          <h2>{workspace.fileName}</h2>
-        </div>
-        <div className="toolbar-actions">
-          <button aria-label="Run code" onClick={onRunCode}>
-            <Play size={16} />
-          </button>
-          <button aria-label="Save file" onClick={() => onCodeChange(workspace.code)}>
-            <Save size={16} />
-          </button>
-        </div>
-      </div>
-      <StackControls workspace={workspace} onStackChange={onStackChange} />
-      <div className="editor-window">
-        <div className="editor-tabs">
-          <span className="active-tab">{workspace.fileName}</span>
-          <span>{workspace.library}</span>
-        </div>
-        <div className="manual-editor">
-          <div className="line-gutter" aria-hidden="true">
-            {Array.from({ length: Math.max(lineCount, 9) }, (_, index) => (
-              <span key={index}>{String(index + 1).padStart(2, '0')}</span>
-            ))}
+    <section className="screen code-screen ide-screen">
+      <div className="ide-shell">
+        <div className="ide-titlebar">
+          <div>
+            <p className="eyebrow">Code Mode</p>
+            <h2>{workspace.fileName}</h2>
           </div>
-          <textarea
-            aria-label="Manual code editor"
-            value={workspace.code}
-            onChange={(event) => onCodeChange(event.target.value)}
-            spellCheck="false"
-          />
+          <div className="toolbar-actions">
+            <button type="button" aria-label="Run code" onClick={onRunCode}>
+              <Play size={16} />
+            </button>
+            <button type="button" aria-label="Save file" onClick={() => onCodeChange(workspace.code)}>
+              <Save size={16} />
+            </button>
+          </div>
         </div>
-      </div>
-      <div className="editor-meta">
-        <span>{getLanguage(workspace.language).label}</span>
-        <span>{workspace.library}</span>
-        <span>{lineCount} lines</span>
+
+        <div className="ide-command-row">
+          <button type="button">
+            <Search size={14} />
+            Search
+          </button>
+          <button type="button">
+            <GitBranch size={14} />
+            main
+          </button>
+          <button type="button" onClick={onCreateFile}>
+            <FilePlus2 size={14} />
+            New file
+          </button>
+        </div>
+
+        <StackControls workspace={workspace} onStackChange={onStackChange} />
+
+        <div className="ide-workbench">
+          <aside className="ide-sidebar" aria-label="IDE sidebar">
+            <div className="ide-activity-bar" aria-label="Activity bar">
+              <button className="active" type="button" aria-label="Explorer">
+                <FolderKanban size={16} />
+              </button>
+              <button type="button" aria-label="Search">
+                <Search size={16} />
+              </button>
+              <button type="button" aria-label="Source control">
+                <GitBranch size={16} />
+              </button>
+              <button type="button" aria-label="Problems">
+                <Bug size={16} />
+              </button>
+            </div>
+            <div className="ide-explorer">
+              <div className="ide-panel-heading">
+                <span>Explorer</span>
+                <button type="button" aria-label="Create file" onClick={onCreateFile}>
+                  <FilePlus2 size={13} />
+                </button>
+              </div>
+              <div className="ide-file-tree">
+                {workspace.files.map((file) => (
+                  <button
+                    className={file.id === activeFile.id ? 'active' : ''}
+                    key={file.id}
+                    type="button"
+                    onClick={() => onSelectFile(file.id)}
+                  >
+                    <FileText size={13} />
+                    <span>{file.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </aside>
+
+          <div className="ide-main-panel">
+            <div className="editor-tabs" aria-label="Open files">
+              {workspace.files.slice(0, 4).map((file) => (
+                <button
+                  className={file.id === activeFile.id ? 'active-tab' : ''}
+                  key={file.id}
+                  type="button"
+                  onClick={() => onSelectFile(file.id)}
+                >
+                  {file.name}
+                </button>
+              ))}
+            </div>
+
+            <div className="manual-editor">
+              <div className="line-gutter" aria-hidden="true">
+                {Array.from({ length: Math.max(lineCount, 9) }, (_, index) => (
+                  <span key={index}>{String(index + 1).padStart(2, '0')}</span>
+                ))}
+              </div>
+              <textarea
+                aria-label="Manual code editor"
+                value={workspace.code}
+                onChange={(event) => onCodeChange(event.target.value)}
+                spellCheck="false"
+              />
+            </div>
+
+            <div className="ide-bottom-panel">
+              <div className="ide-bottom-tabs">
+                <span className="active">
+                  <PanelBottom size={13} />
+                  Terminal
+                </span>
+                <span>
+                  <Bug size={13} />
+                  Problems 0
+                </span>
+              </div>
+              <div className="terminal-output">
+                {terminalLines.map((line) => (
+                  <span key={line}>{line}</span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="ide-statusbar">
+          <span>
+            <GitBranch size={13} />
+            main
+          </span>
+          <span>{getLanguage(workspace.language).label}</span>
+          <span>{workspace.library}</span>
+          <span>{lineCount} lines</span>
+          <span>{getFileSize(workspace.code)}</span>
+        </div>
       </div>
     </section>
   );
@@ -2020,7 +2352,9 @@ function PreviewScreen({ workspace }) {
   );
 }
 
-function FilesScreen() {
+function FilesScreen({ workspace, onOpenFile, onCreateFile }) {
+  const totalLines = workspace.files.reduce((total, file) => total + file.code.split('\n').length, 0);
+
   return (
     <section className="screen files-screen">
       <div className="screen-title">
@@ -2028,23 +2362,42 @@ function FilesScreen() {
           <p className="eyebrow">Files</p>
           <h2>Project Explorer</h2>
         </div>
-        <button className="new-file-button">
+        <button className="new-file-button" type="button" onClick={onCreateFile}>
           <FilePlus2 size={17} />
           New
         </button>
       </div>
+      <div className="files-summary">
+        <div>
+          <strong>{workspace.files.length}</strong>
+          <span>Files</span>
+        </div>
+        <div>
+          <strong>{totalLines}</strong>
+          <span>Lines</span>
+        </div>
+        <div>
+          <strong>{workspace.library}</strong>
+          <span>Active stack</span>
+        </div>
+      </div>
       <div className="file-list">
-        {files.map((file) => (
-          <article className="file-row" key={file.name}>
+        {workspace.files.map((file) => (
+          <button
+            className={`file-row ${file.id === workspace.activeFileId ? 'active' : ''}`}
+            key={file.id}
+            type="button"
+            onClick={() => onOpenFile(file.id)}
+          >
             <div className="file-icon">
-              <Code2 size={18} />
+              <FileText size={18} />
             </div>
             <div>
               <h3>{file.name}</h3>
               <p>{file.type}</p>
             </div>
-            <span>{file.size}</span>
-          </article>
+            <span>{getFileSize(file.code)}</span>
+          </button>
         ))}
       </div>
     </section>

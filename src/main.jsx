@@ -887,6 +887,7 @@ function App() {
   const currentUser = appData.users.find((user) => user.id === appData.currentUserId) ?? null;
   const currentSettings = currentUser?.settings ?? defaultUserSettings;
   const workspace = normalizeWorkspace(appData.workspace);
+  const shellModeClass = activeView === 'app' ? `screen-${activeScreen}` : `view-${activeView}`;
 
   React.useEffect(() => {
     window.localStorage.setItem(storageKey, JSON.stringify(appData));
@@ -1263,7 +1264,7 @@ function App() {
     <main className={`app theme-${currentSettings.accent} density-${currentSettings.density} editor-${currentSettings.editorSize} ${currentSettings.glass ? 'glass-on' : 'glass-off'}`}>
       <div className="ambient ambient-one" />
       <div className="ambient ambient-two" />
-      <section className={`phone-shell ${!currentUser || activeView === 'subscription' ? 'auth-shell' : ''}`} aria-label="Code On The Go software workspace">
+      <section className={`phone-shell ${shellModeClass} ${!currentUser || activeView === 'subscription' ? 'auth-shell' : ''}`} aria-label="Code On The Go software workspace">
         <AppHeader
           showActions={Boolean(currentUser) && (activeView === 'app' || activeView === 'profile')}
           onOpenProfile={openProfile}

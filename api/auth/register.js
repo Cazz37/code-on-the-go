@@ -37,7 +37,7 @@ export default async function handler(req, res) {
       201,
       {
         ok: true,
-        user: publicUser(user),
+        user: publicUser({ ...user, aiKeyConfigured: false }),
         workspace,
         activity
       },

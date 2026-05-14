@@ -19,6 +19,7 @@ import {
   GitBranch,
   Home,
   Layers3,
+  KeyRound,
   LockKeyhole,
   LogOut,
   Mail,
@@ -37,6 +38,7 @@ import {
   Sparkles,
   Search,
   TerminalSquare,
+  Trash2,
   UsersRound,
   UserRound,
   WandSparkles,
@@ -820,6 +822,7 @@ function normalizeWorkspace(workspace = {}) {
 function withDefaultUserSettings(user) {
   return {
     ...user,
+    aiKeyConfigured: Boolean(user.aiKeyConfigured),
     settings: {
       ...defaultUserSettings,
       ...(user.settings ?? {})
@@ -842,6 +845,7 @@ function getDefaultAppData() {
         planId: 'pro',
         paymentProvider: 'Stripe',
         subscriptionStatus: 'active',
+        aiKeyConfigured: false,
         settings: defaultUserSettings,
         createdAt,
         payments: [
@@ -922,10 +926,14 @@ function App() {
     }
 
     setAppData((current) => {
+      const existingUser = current.users.find((user) => user.id === payload.user.id);
       const nextUser = {
+        ...existingUser,
         ...payload.user,
+        aiKeyConfigured: payload.user.aiKeyConfigured ?? existingUser?.aiKeyConfigured ?? false,
         settings: {
           ...defaultUserSettings,
+          ...(existingUser?.settings ?? {}),
           ...(payload.user.settings ?? {})
         }
       };
@@ -1271,6 +1279,55 @@ function App() {
     return { ok: true, message: 'Profile saved.' };
   };
 
+  const handleSaveAiKey = async (apiKey) => {
+    if (!currentUser) {
+      return { ok: false, message: 'Sign in before saving an API key.' };
+    }
+
+    try {
+      const payload = await apiRequest('/api/ai/key', {
+        method: 'PUT',
+        body: JSON.stringify({ apiKey })
+      });
+      if (payload.user) {
+        applyServerSession({
+          user: payload.user,
+          workspace: appData.workspace,
+          activity: appData.activity
+        });
+      }
+      return { ok: true, message: 'OpenAI key connected.' };
+    } catch (error) {
+      if (error.message !== 'API unavailable' && error.status !== 404) {
+        return { ok: false, message: error.message };
+      }
+      return { ok: false, message: 'Secure key storage needs the backend API.' };
+    }
+  };
+
+  const handleRemoveAiKey = async () => {
+    if (!currentUser) {
+      return { ok: false, message: 'Sign in before changing API settings.' };
+    }
+
+    try {
+      const payload = await apiRequest('/api/ai/key', { method: 'DELETE' });
+      if (payload.user) {
+        applyServerSession({
+          user: payload.user,
+          workspace: appData.workspace,
+          activity: appData.activity
+        });
+      }
+      return { ok: true, message: 'OpenAI key removed.' };
+    } catch (error) {
+      if (error.message !== 'API unavailable' && error.status !== 404) {
+        return { ok: false, message: error.message };
+      }
+      return { ok: false, message: 'Secure key storage needs the backend API.' };
+    }
+  };
+
   const updateWorkspace = (patch) => {
     setAppData((current) => ({
       ...current,
@@ -1508,6 +1565,8 @@ function App() {
               user={currentUser}
               plan={getPlan(currentUser?.planId)}
               onSave={handleProfileSave}
+              onSaveAiKey={handleSaveAiKey}
+              onRemoveAiKey={handleRemoveAiKey}
               onSubscribe={openSubscription}
               onDone={() => setActiveView('app')}
               onSignOut={handleSignOut}
@@ -2008,7 +2067,7 @@ function SubscriptionScreen({ onBack, onCheckout, onRequireAccount, currentUser,
   );
 }
 
-function ProfileScreen({ user, plan, onSave, onSubscribe, onDone, onSignOut }) {
+function ProfileScreen({ user, plan, onSave, onSaveAiKey, onRemoveAiKey, onSubscribe, onDone, onSignOut }) {
   const userSettings = user?.settings ?? defaultUserSettings;
   const [profile, setProfile] = React.useState({
     name: user?.name ?? '',
@@ -2019,6 +2078,8 @@ function ProfileScreen({ user, plan, onSave, onSubscribe, onDone, onSignOut }) {
     }
   });
   const [message, setMessage] = React.useState('');
+  const [apiKey, setApiKey] = React.useState('');
+  const [keyMessage, setKeyMessage] = React.useState('');
 
   const updateField = (event) => {
     setMessage('');
@@ -2040,6 +2101,22 @@ function ProfileScreen({ user, plan, onSave, onSubscribe, onDone, onSignOut }) {
     event.preventDefault();
     const result = await onSave(profile);
     setMessage(result.message);
+  };
+
+  const saveAiKey = async (event) => {
+    event.preventDefault();
+    setKeyMessage('');
+    const result = await onSaveAiKey(apiKey.trim());
+    if (result.ok) {
+      setApiKey('');
+    }
+    setKeyMessage(result.message);
+  };
+
+  const removeAiKey = async () => {
+    setKeyMessage('');
+    const result = await onRemoveAiKey();
+    setKeyMessage(result.message);
   };
 
   return (
@@ -2117,6 +2194,53 @@ function ProfileScreen({ user, plan, onSave, onSubscribe, onDone, onSignOut }) {
           Save Profile
           <Check size={18} />
         </button>
+      </form>
+
+      <form className="profile-card ai-key-card" onSubmit={saveAiKey}>
+        <div className="ai-key-heading">
+          <div>
+            <KeyRound size={18} />
+            <div>
+              <strong>Personal OpenAI key</strong>
+              <span>{user?.aiKeyConfigured ? 'Connected' : 'Not connected'}</span>
+            </div>
+          </div>
+          <span className={`key-status ${user?.aiKeyConfigured ? 'connected' : ''}`}>
+            <ShieldCheck size={14} />
+            {user?.aiKeyConfigured ? 'Ready' : 'Setup'}
+          </span>
+        </div>
+
+        <InputField
+          icon={KeyRound}
+          label="API key"
+          name="apiKey"
+          type="password"
+          value={apiKey}
+          onChange={(event) => {
+            setKeyMessage('');
+            setApiKey(event.target.value);
+          }}
+          placeholder="sk-..."
+          autoComplete="off"
+        />
+
+        {keyMessage && <FormMessage message={keyMessage} />}
+        <div className="profile-key-actions">
+          <button className="primary-action" type="submit" disabled={!apiKey.trim()}>
+            Save Key
+            <Check size={18} />
+          </button>
+          <button
+            className="secondary-action danger-action"
+            type="button"
+            disabled={!user?.aiKeyConfigured}
+            onClick={removeAiKey}
+          >
+            Remove
+            <Trash2 size={17} />
+          </button>
+        </div>
       </form>
 
       <div className="profile-actions">

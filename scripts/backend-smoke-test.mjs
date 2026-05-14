@@ -10,9 +10,11 @@ import me from '../api/me.js';
 import profile from '../api/profile.js';
 import workspace from '../api/workspace.js';
 import aiGenerate from '../api/ai/generate.js';
+import aiKey from '../api/ai/key.js';
 import checkoutCreate from '../api/checkout/create.js';
 
 process.env.APP_JWT_SECRET = 'backend-smoke-test-secret';
+process.env.APP_ENCRYPTION_KEY = 'backend-smoke-test-encryption-secret';
 process.env.ALLOW_TEST_AI = 'true';
 process.env.ALLOW_TEST_PAYMENTS = 'true';
 process.env.LOCAL_DB_PATH = path.join(process.cwd(), '.data', `backend-smoke-${Date.now()}.json`);
@@ -75,6 +77,7 @@ const authHeaders = { cookie };
 const meResult = await call(me, 'GET', undefined, authHeaders);
 assert.equal(meResult.status, 200);
 assert.equal(meResult.payload.workspace.fileName, 'App.jsx');
+assert.equal(meResult.payload.user.aiKeyConfigured, false);
 
 const profileResult = await call(profile, 'PUT', {
   name: 'Smoke Builder',
@@ -83,6 +86,22 @@ const profileResult = await call(profile, 'PUT', {
 }, authHeaders);
 assert.equal(profileResult.status, 200);
 assert.equal(profileResult.payload.user.name, 'Smoke Builder');
+
+const keyBeforeResult = await call(aiKey, 'GET', undefined, authHeaders);
+assert.equal(keyBeforeResult.status, 200);
+assert.equal(keyBeforeResult.payload.configured, false);
+
+const keySaveResult = await call(aiKey, 'PUT', {
+  apiKey: 'sk-test-123456789012345678901234567890'
+}, authHeaders);
+assert.equal(keySaveResult.status, 200);
+assert.equal(keySaveResult.payload.configured, true);
+assert.equal(keySaveResult.payload.user.aiKeyConfigured, true);
+assert.match(keySaveResult.payload.masked, /^sk-test/);
+
+const keyDeleteResult = await call(aiKey, 'DELETE', undefined, authHeaders);
+assert.equal(keyDeleteResult.status, 200);
+assert.equal(keyDeleteResult.payload.configured, false);
 
 const savedWorkspace = {
   ...meResult.payload.workspace,

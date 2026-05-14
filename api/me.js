@@ -14,10 +14,11 @@ export default async function handler(req, res) {
 
     const workspace = await store.getWorkspace(user.id);
     const activity = await store.listActivity(user.id);
+    const aiKeyConfigured = await store.hasOpenAiKey(user.id);
 
     sendJson(res, 200, {
       ok: true,
-      user: publicUser(user),
+      user: publicUser({ ...user, aiKeyConfigured }),
       workspace,
       activity,
       database: store.persistent ? 'postgres' : 'local-dev-json'

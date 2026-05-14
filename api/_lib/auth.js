@@ -82,6 +82,9 @@ export function publicUser(user) {
     paymentProvider: user.paymentProvider,
     subscriptionStatus: user.subscriptionStatus,
     settings: user.settings,
-    createdAt: user.createdAt
+    createdAt: user.createdAt,
+    ...(typeof user.aiKeyConfigured === 'boolean'
+      ? { aiKeyConfigured: user.aiKeyConfigured }
+      : {})
   };
 }

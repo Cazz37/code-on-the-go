@@ -31,11 +31,12 @@ export default async function handler(req, res) {
       name: displayName,
       settings: nextSettings
     });
+    const aiKeyConfigured = await store.hasOpenAiKey(user.id);
     await store.addActivity(user.id, 'profile', `${displayName} updated profile settings.`);
 
     sendJson(res, 200, {
       ok: true,
-      user: publicUser(nextUser)
+      user: publicUser({ ...nextUser, aiKeyConfigured })
     });
   } catch (error) {
     sendError(res, 500, 'Could not update profile.', error.message);

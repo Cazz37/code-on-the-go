@@ -18,6 +18,7 @@ export default async function handler(req, res) {
 
     const workspace = await store.getWorkspace(user.id);
     const activity = await store.listActivity(user.id);
+    const aiKeyConfigured = await store.hasOpenAiKey(user.id);
     await store.addActivity(user.id, 'login', `${user.name} signed in.`);
 
     sendJson(
@@ -25,7 +26,7 @@ export default async function handler(req, res) {
       200,
       {
         ok: true,
-        user: publicUser(user),
+        user: publicUser({ ...user, aiKeyConfigured }),
         workspace,
         activity
       },

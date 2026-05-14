@@ -7,6 +7,7 @@ export default async function handler(req, res) {
     ok: true,
     database: store.persistent ? 'postgres' : 'local-dev-json',
     aiConfigured: Boolean(process.env.OPENAI_API_KEY),
+    personalAiKeysSupported: true,
     stripeConfigured: Boolean(process.env.STRIPE_SECRET_KEY),
     payPointConfigured: Boolean(process.env.PAYPOINT_API_KEY)
   });

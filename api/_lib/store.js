@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import pg from 'pg';
 import bcrypt from 'bcryptjs';
+import { encryptSecret, decryptSecret } from './secrets.js';
 import { defaultUserSettings, createInitialWorkspace } from './workspaceDefaults.js';
 
 const { Pool } = pg;
@@ -85,6 +86,12 @@ async function ensurePostgresSchema() {
       message TEXT NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    CREATE TABLE IF NOT EXISTS user_secrets (
+      user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      openai_api_key_cipher TEXT,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
   `);
 
   const demo = await client.query('SELECT id FROM users WHERE email = $1', ['demo@codego.app']);
@@ -142,6 +149,7 @@ async function loadFileState() {
         'user-demo': createInitialWorkspace()
       },
       payments: [],
+      secrets: {},
       activity: [
         {
           id: 'activity-demo',
@@ -339,6 +347,41 @@ function createPostgresStore(db) {
         ]
       );
       return item;
+    },
+    async hasOpenAiKey(userId) {
+      const result = await db.query(
+        'SELECT openai_api_key_cipher FROM user_secrets WHERE user_id = $1',
+        [userId]
+      );
+      return Boolean(result.rows[0]?.openai_api_key_cipher);
+    },
+    async getOpenAiKey(userId) {
+      const result = await db.query(
+        'SELECT openai_api_key_cipher FROM user_secrets WHERE user_id = $1',
+        [userId]
+      );
+      return decryptSecret(result.rows[0]?.openai_api_key_cipher);
+    },
+    async setOpenAiKey(userId, key) {
+      const encrypted = encryptSecret(key);
+      await db.query(
+        `INSERT INTO user_secrets (user_id, openai_api_key_cipher, updated_at)
+         VALUES ($1, $2, NOW())
+         ON CONFLICT (user_id)
+         DO UPDATE SET openai_api_key_cipher = EXCLUDED.openai_api_key_cipher, updated_at = NOW()`,
+        [userId, encrypted]
+      );
+      return true;
+    },
+    async deleteOpenAiKey(userId) {
+      await db.query(
+        `INSERT INTO user_secrets (user_id, openai_api_key_cipher, updated_at)
+         VALUES ($1, NULL, NOW())
+         ON CONFLICT (user_id)
+         DO UPDATE SET openai_api_key_cipher = NULL, updated_at = NOW()`,
+        [userId]
+      );
+      return true;
     }
   };
 }
@@ -420,6 +463,36 @@ function createFileStore() {
       state.payments.unshift(item);
       await saveFileState(state);
       return item;
+    },
+    async hasOpenAiKey(userId) {
+      const state = await loadFileState();
+      return Boolean(state.secrets?.[userId]?.openaiApiKeyCipher);
+    },
+    async getOpenAiKey(userId) {
+      const state = await loadFileState();
+      return decryptSecret(state.secrets?.[userId]?.openaiApiKeyCipher);
+    },
+    async setOpenAiKey(userId, key) {
+      const state = await loadFileState();
+      state.secrets ??= {};
+      state.secrets[userId] = {
+        ...(state.secrets[userId] ?? {}),
+        openaiApiKeyCipher: encryptSecret(key),
+        updatedAt: now()
+      };
+      await saveFileState(state);
+      return true;
+    },
+    async deleteOpenAiKey(userId) {
+      const state = await loadFileState();
+      state.secrets ??= {};
+      state.secrets[userId] = {
+        ...(state.secrets[userId] ?? {}),
+        openaiApiKeyCipher: null,
+        updatedAt: now()
+      };
+      await saveFileState(state);
+      return true;
     }
   };
 }

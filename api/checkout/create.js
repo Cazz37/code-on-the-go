@@ -14,6 +14,8 @@ export default async function handler(req, res) {
       sendError(res, 401, 'Not signed in.');
       return;
     }
+    const withAiKeyStatus = async (nextUser) =>
+      publicUser({ ...nextUser, aiKeyConfigured: await store.hasOpenAiKey(nextUser.id) });
 
     const { planId = 'starter', provider = 'Stripe', payment = {} } = await readJson(req);
     const plan = getPlan(planId);
@@ -25,7 +27,7 @@ export default async function handler(req, res) {
         subscriptionStatus: 'active'
       });
       await store.addActivity(user.id, 'subscription', `${user.name} selected the Starter plan.`);
-      sendJson(res, 200, { ok: true, mode: 'free', user: publicUser(nextUser) });
+      sendJson(res, 200, { ok: true, mode: 'free', user: await withAiKeyStatus(nextUser) });
       return;
     }
 
@@ -46,7 +48,7 @@ export default async function handler(req, res) {
             reference: payment.reference || 'PP-TEST'
           });
           await store.addActivity(user.id, 'subscription', `${user.name} activated ${plan.name} with PayPoint test checkout.`);
-          sendJson(res, 200, { ok: true, mode: 'test_paid', user: publicUser(nextUser) });
+          sendJson(res, 200, { ok: true, mode: 'test_paid', user: await withAiKeyStatus(nextUser) });
           return;
         }
 
@@ -81,7 +83,7 @@ export default async function handler(req, res) {
           last4: digits.slice(-4)
         });
         await store.addActivity(user.id, 'subscription', `${user.name} activated ${plan.name} with Stripe test checkout.`);
-        sendJson(res, 200, { ok: true, mode: 'test_paid', user: publicUser(nextUser) });
+        sendJson(res, 200, { ok: true, mode: 'test_paid', user: await withAiKeyStatus(nextUser) });
         return;
       }
 

@@ -35,9 +35,12 @@ export default async function handler(req, res) {
 
     let code;
     let provider = 'openai';
+    const userOpenAiKey = await store.getOpenAiKey(user.id);
+    const openAiKey = userOpenAiKey || process.env.OPENAI_API_KEY;
 
-    if (process.env.OPENAI_API_KEY) {
-      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    if (openAiKey) {
+      provider = userOpenAiKey ? 'personal OpenAI key' : 'platform OpenAI key';
+      const openai = new OpenAI({ apiKey: openAiKey });
       const response = await openai.responses.create({
         model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
         input: [

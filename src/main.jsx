@@ -210,6 +210,33 @@ function normalizeEmail(email) {
   return email.trim().toLowerCase();
 }
 
+async function apiRequest(path, options = {}) {
+  const response = await fetch(path, {
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.headers ?? {})
+    },
+    ...options
+  });
+  const contentType = response.headers.get('content-type') ?? '';
+
+  if (!contentType.includes('application/json')) {
+    const error = new Error('API unavailable');
+    error.status = response.status;
+    throw error;
+  }
+
+  const payload = await response.json();
+  if (!response.ok || payload.ok === false) {
+    const error = new Error(payload.error || 'Request failed');
+    error.status = response.status;
+    throw error;
+  }
+
+  return payload;
+}
+
 function getLanguage(languageId) {
   return languageOptions.find((language) => language.id === languageId) ?? languageOptions[0];
 }
@@ -889,9 +916,53 @@ function App() {
   const workspace = normalizeWorkspace(appData.workspace);
   const shellModeClass = activeView === 'app' ? `screen-${activeScreen}` : `view-${activeView}`;
 
+  const applyServerSession = React.useCallback((payload) => {
+    if (!payload?.user) {
+      return;
+    }
+
+    setAppData((current) => {
+      const nextUser = {
+        ...payload.user,
+        settings: {
+          ...defaultUserSettings,
+          ...(payload.user.settings ?? {})
+        }
+      };
+      const otherUsers = current.users.filter((user) => user.id !== nextUser.id);
+
+      return {
+        ...current,
+        currentUserId: nextUser.id,
+        users: [...otherUsers, nextUser],
+        workspace: payload.workspace ? normalizeWorkspace(payload.workspace) : current.workspace,
+        activity: payload.activity?.length ? payload.activity : current.activity
+      };
+    });
+  }, []);
+
   React.useEffect(() => {
     window.localStorage.setItem(storageKey, JSON.stringify(appData));
   }, [appData]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    apiRequest('/api/me')
+      .then((payload) => {
+        if (!cancelled && payload.user) {
+          applyServerSession(payload);
+          setActiveView('app');
+        }
+      })
+      .catch(() => {
+        // Local Vite dev does not serve Vercel API routes; keep the offline demo state.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [applyServerSession]);
 
   React.useEffect(() => {
     if (screenStackRef.current) {
@@ -943,13 +1014,28 @@ function App() {
     return entry;
   };
 
-  const handleLogin = ({ email, password }) => {
+  const handleLogin = async ({ email, password }) => {
     const normalizedEmail = normalizeEmail(email);
-    const user = appData.users.find((candidate) => candidate.email === normalizedEmail);
 
     if (!normalizedEmail || !password) {
       return { ok: false, message: 'Enter your email and password.' };
     }
+
+    try {
+      const payload = await apiRequest('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email: normalizedEmail, password })
+      });
+      applyServerSession(payload);
+      enterApp();
+      return { ok: true };
+    } catch (error) {
+      if (error.status && error.status !== 404) {
+        return { ok: false, message: error.message };
+      }
+    }
+
+    const user = appData.users.find((candidate) => candidate.email === normalizedEmail);
 
     if (!user || user.password !== password) {
       return { ok: false, message: 'No matching account found for those details.' };
@@ -961,7 +1047,7 @@ function App() {
     return { ok: true };
   };
 
-  const handleRegister = ({ name, email, password }) => {
+  const handleRegister = async ({ name, email, password }) => {
     const normalizedEmail = normalizeEmail(email);
 
     if (!name.trim() || !normalizedEmail || !password) {
@@ -987,7 +1073,7 @@ function App() {
     return { ok: true };
   };
 
-  const handleCheckout = ({ planId, provider, payment }) => {
+  const handleCheckout = async ({ planId, provider, payment }) => {
     const plan = getPlan(planId);
     const createdAt = getNow();
     const requiresPayment = plan.amount > 0;
@@ -1004,6 +1090,47 @@ function App() {
     if (!pendingSignup && !currentUser) {
       setActiveView('register');
       return { ok: false, message: 'Create an account before checkout.' };
+    }
+
+    try {
+      if (pendingSignup) {
+        const registerPayload = await apiRequest('/api/auth/register', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: pendingSignup.name,
+            email: pendingSignup.email,
+            password: pendingSignup.password,
+            planId
+          })
+        });
+        applyServerSession(registerPayload);
+      }
+
+      const checkoutPayload = await apiRequest('/api/checkout/create', {
+        method: 'POST',
+        body: JSON.stringify({ planId, provider, payment })
+      });
+
+      if (checkoutPayload.checkoutUrl) {
+        window.location.assign(checkoutPayload.checkoutUrl);
+        return { ok: true };
+      }
+
+      if (checkoutPayload.user) {
+        applyServerSession({
+          user: checkoutPayload.user,
+          workspace,
+          activity: appData.activity
+        });
+      }
+
+      setPendingSignup(null);
+      enterApp();
+      return { ok: true };
+    } catch (error) {
+      if (error.status && error.status !== 404) {
+        return { ok: false, message: error.message };
+      }
     }
 
     const paymentRecord = {
@@ -1077,13 +1204,14 @@ function App() {
     return { ok: true };
   };
 
-  const handleSignOut = () => {
+  const handleSignOut = async () => {
+    apiRequest('/api/auth/logout', { method: 'POST' }).catch(() => {});
     setAppData((current) => ({ ...current, currentUserId: null }));
     setActiveScreen('home');
     setActiveView('login');
   };
 
-  const handleProfileSave = ({ name, workspaceName, settings }) => {
+  const handleProfileSave = async ({ name, workspaceName, settings }) => {
     const displayName = name.trim();
     const workspace = workspaceName.trim();
 
@@ -1093,6 +1221,25 @@ function App() {
 
     if (!workspace) {
       return { ok: false, message: 'Add a workspace name.' };
+    }
+
+    try {
+      const payload = await apiRequest('/api/profile', {
+        method: 'PUT',
+        body: JSON.stringify({ name: displayName, workspaceName: workspace, settings })
+      });
+      if (payload.user) {
+        applyServerSession({
+          user: payload.user,
+          workspace: appData.workspace,
+          activity: appData.activity
+        });
+      }
+      return { ok: true, message: 'Profile saved.' };
+    } catch (error) {
+      if (error.status && error.status !== 404) {
+        return { ok: false, message: error.message };
+      }
     }
 
     setAppData((current) => ({
@@ -1134,6 +1281,21 @@ function App() {
     }));
   };
 
+  const syncWorkspace = async (nextWorkspace = appData.workspace) => {
+    try {
+      await apiRequest('/api/workspace', {
+        method: 'PUT',
+        body: JSON.stringify({ workspace: normalizeWorkspace(nextWorkspace) })
+      });
+      return { ok: true, message: 'Workspace saved.' };
+    } catch (error) {
+      if (error.status && error.status !== 404) {
+        return { ok: false, message: error.message };
+      }
+      return { ok: true, message: 'Workspace saved locally.' };
+    }
+  };
+
   const updateActiveFile = (patch) =>
     workspace.files.map((file) =>
       file.id === workspace.activeFileId
@@ -1163,10 +1325,50 @@ function App() {
     });
   };
 
-  const handleAiPrompt = (prompt) => {
+  const handleAiPrompt = async (prompt) => {
     const generatedCode = buildGeneratedCode(prompt, workspace.language, workspace.library);
     const nextFileName = getFileName(workspace.language, workspace.library);
     const aiMessage = `I generated ${workspace.library} ${getLanguage(workspace.language).label} code and placed it in Code Mode. You can keep editing it manually.`;
+
+    try {
+      const payload = await apiRequest('/api/ai/generate', {
+        method: 'POST',
+        body: JSON.stringify({
+          prompt,
+          language: workspace.language,
+          library: workspace.library,
+          workspace
+        })
+      });
+
+      if (payload.workspace) {
+        updateWorkspace(payload.workspace);
+      } else if (payload.code) {
+        updateWorkspace({
+          code: payload.code,
+          lastPrompt: prompt,
+          fileName: nextFileName,
+          files: updateActiveFile({
+            name: nextFileName,
+            type: getFileType(workspace.language, workspace.library),
+            language: workspace.language,
+            library: workspace.library,
+            code: payload.code
+          }),
+          chatMessages: [
+            ...(workspace.chatMessages ?? defaultChatMessages),
+            { from: 'user', text: prompt },
+            { from: 'ai', text: `Generated code with ${payload.provider ?? 'AI'}.` }
+          ]
+        });
+      }
+
+      return { ok: true, message: `Generated code with ${payload.provider ?? 'AI backend'}.` };
+    } catch (error) {
+      if (error.status && error.status !== 404) {
+        return { ok: false, message: error.message };
+      }
+    }
 
     setAppData((current) => ({
       ...current,
@@ -1211,8 +1413,14 @@ function App() {
 
   const handleRunCode = () => {
     updateWorkspace({ lastRunAt: getNow() });
+    syncWorkspace({
+      ...workspace,
+      lastRunAt: getNow()
+    });
     appendActivity({ type: 'code', message: `${currentUser?.name ?? 'A user'} previewed ${workspace.fileName}.` });
   };
+
+  const handleSaveWorkspace = async () => syncWorkspace(workspace);
 
   const handleOpenFile = (fileId, openCode = true) => {
     const file = workspace.files.find((candidate) => candidate.id === fileId);
@@ -1328,6 +1536,7 @@ function App() {
               onCodeChange={handleManualCodeChange}
               onStackChange={handleWorkspaceStackChange}
               onRunCode={handleRunCode}
+              onSaveWorkspace={handleSaveWorkspace}
               onSelectFile={(fileId) => handleOpenFile(fileId, false)}
               onCreateFile={handleCreateFile}
             />
@@ -1447,9 +1656,9 @@ function LoginScreen({ onLogin, onRegister, onSubscribe }) {
     setForm((current) => ({ ...current, [event.target.name]: event.target.value }));
   };
 
-  const submitLogin = (event) => {
+  const submitLogin = async (event) => {
     event.preventDefault();
-    const result = onLogin(form);
+    const result = await onLogin(form);
     if (!result.ok) {
       setError(result.message);
     }
@@ -1519,9 +1728,9 @@ function RegisterScreen({ onLogin, onCreate }) {
     setForm((current) => ({ ...current, [event.target.name]: event.target.value }));
   };
 
-  const submitRegister = (event) => {
+  const submitRegister = async (event) => {
     event.preventDefault();
-    const result = onCreate(form);
+    const result = await onCreate(form);
     if (!result.ok) {
       setError(result.message);
     }
@@ -1606,13 +1815,13 @@ function SubscriptionScreen({ onBack, onCheckout, onRequireAccount, currentUser,
     setPayment((current) => ({ ...current, [event.target.name]: event.target.value }));
   };
 
-  const submitCheckout = () => {
+  const submitCheckout = async () => {
     if (!canCheckout) {
       onRequireAccount();
       return;
     }
 
-    const result = onCheckout({ planId: selectedPlanId, provider, payment });
+    const result = await onCheckout({ planId: selectedPlanId, provider, payment });
     if (!result.ok) {
       setError(result.message);
       setCheckoutOpen(true);
@@ -1620,7 +1829,7 @@ function SubscriptionScreen({ onBack, onCheckout, onRequireAccount, currentUser,
     }
   };
 
-  const handlePrimaryAction = () => {
+  const handlePrimaryAction = async () => {
     if (!canCheckout) {
       onRequireAccount();
       return;
@@ -1632,7 +1841,7 @@ function SubscriptionScreen({ onBack, onCheckout, onRequireAccount, currentUser,
       return;
     }
 
-    submitCheckout();
+    await submitCheckout();
   };
 
   return (
@@ -1827,9 +2036,9 @@ function ProfileScreen({ user, plan, onSave, onSubscribe, onDone, onSignOut }) {
     }));
   };
 
-  const saveProfile = (event) => {
+  const saveProfile = async (event) => {
     event.preventDefault();
-    const result = onSave(profile);
+    const result = await onSave(profile);
     setMessage(result.message);
   };
 
@@ -2127,16 +2336,18 @@ function AiScreen({ workspace, onPrompt, onStackChange, onOpenCode }) {
   const [prompt, setPrompt] = React.useState('');
   const [status, setStatus] = React.useState('');
 
-  const submitPrompt = (event) => {
+  const submitPrompt = async (event) => {
     event.preventDefault();
     if (!prompt.trim()) {
       setStatus('Describe what you want the AI to build first.');
       return;
     }
 
-    const result = onPrompt(prompt.trim());
+    const result = await onPrompt(prompt.trim());
     setStatus(result.message);
-    setPrompt('');
+    if (result.ok) {
+      setPrompt('');
+    }
   };
 
   return (
@@ -2177,7 +2388,7 @@ function AiScreen({ workspace, onPrompt, onStackChange, onOpenCode }) {
   );
 }
 
-function CodeScreen({ workspace, onCodeChange, onStackChange, onRunCode, onSelectFile, onCreateFile }) {
+function CodeScreen({ workspace, onCodeChange, onStackChange, onRunCode, onSaveWorkspace, onSelectFile, onCreateFile }) {
   const lineCount = workspace.code.split('\n').length;
   const activeFile = workspace.files.find((file) => file.id === workspace.activeFileId) ?? workspace.files[0];
   const terminalLines = [
@@ -2199,7 +2410,7 @@ function CodeScreen({ workspace, onCodeChange, onStackChange, onRunCode, onSelec
             <button type="button" aria-label="Run code" onClick={onRunCode}>
               <Play size={16} />
             </button>
-            <button type="button" aria-label="Save file" onClick={() => onCodeChange(workspace.code)}>
+            <button type="button" aria-label="Save file" onClick={onSaveWorkspace}>
               <Save size={16} />
             </button>
           </div>

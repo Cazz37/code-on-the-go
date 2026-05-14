@@ -20,15 +20,33 @@ function now() {
   return new Date().toISOString();
 }
 
+function getDatabaseUrl() {
+  return (
+    process.env.DATABASE_URL ||
+    process.env.POSTGRES_URL ||
+    process.env.POSTGRES_PRISMA_URL ||
+    process.env.POSTGRES_URL_NON_POOLING ||
+    ''
+  );
+}
+
+function getDatabaseSsl(databaseUrl) {
+  const normalizedUrl = databaseUrl.toLowerCase();
+  return normalizedUrl.includes('localhost') || normalizedUrl.includes('127.0.0.1')
+    ? false
+    : { rejectUnauthorized: false };
+}
+
 function isPostgresEnabled() {
-  return Boolean(process.env.DATABASE_URL);
+  return Boolean(getDatabaseUrl());
 }
 
 async function getPool() {
+  const databaseUrl = getDatabaseUrl();
   if (!pool) {
     pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: process.env.DATABASE_URL?.includes('localhost') ? false : { rejectUnauthorized: false }
+      connectionString: databaseUrl,
+      ssl: getDatabaseSsl(databaseUrl)
     });
   }
 
@@ -41,9 +59,10 @@ async function getPool() {
 }
 
 async function ensurePostgresSchema() {
+  const databaseUrl = getDatabaseUrl();
   const client = pool ?? new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: process.env.DATABASE_URL?.includes('localhost') ? false : { rejectUnauthorized: false }
+    connectionString: databaseUrl,
+    ssl: getDatabaseSsl(databaseUrl)
   });
   pool = client;
 

@@ -163,25 +163,32 @@ button {
 
 .app-header {
   z-index: 6;
-  display: flex;
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) 52px;
   align-items: center;
-  justify-content: center;
-  gap: 12px;
   padding: 8px 18px 6px;
 }
 
+.app-header.brand-only {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .brand-lockup {
-  display: flex;
-  justify-content: center;
-  align-items: center;
+  grid-column: 2;
+  display: grid;
+  place-items: center;
   width: 100%;
   min-width: 0;
+}
+
+.app-header.brand-only .brand-lockup {
+  grid-column: 1;
 }
 
 .brand-logo {
   width: auto;
   height: clamp(92px, 23vw, 104px);
-  max-width: calc(100% - 84px);
+  max-width: 100%;
   object-fit: contain;
   object-position: center;
   filter: drop-shadow(0 14px 22px rgba(76, 29, 149, 0.16));
@@ -222,16 +229,16 @@ h1 {
 }
 
 .app-header .icon-button {
-  position: absolute;
-  top: 30px;
+  align-self: center;
+  justify-self: center;
 }
 
 .header-menu-button {
-  left: 18px;
+  grid-column: 1;
 }
 
 .header-settings-button {
-  right: 18px;
+  grid-column: 3;
 }
 
 .feature-menu {

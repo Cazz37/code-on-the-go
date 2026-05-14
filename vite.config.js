@@ -11,7 +11,7 @@ export default defineConfig({
       manifest: {
         name: 'Code On The Go',
         short_name: 'CodeGo',
-        description: 'A premium mobile AI coding workspace for building apps from your phone.',
+        description: 'A premium mobile AI coding workspace for building software from your phone.',
         theme_color: '#7c3aed',
         background_color: '#f8f5ff',
         display: 'fullscreen',

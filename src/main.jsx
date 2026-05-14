@@ -50,7 +50,7 @@ const screens = [
 ];
 
 const quickActions = [
-  { title: 'New AI App', meta: 'Prompt to project', icon: WandSparkles },
+  { title: 'New Project', meta: 'Prompt to software', icon: WandSparkles },
   { title: 'Open Studio', meta: 'Mobile IDE', icon: TerminalSquare },
   { title: 'Ship Preview', meta: 'Test instantly', icon: Rocket }
 ];
@@ -69,6 +69,15 @@ const languageOptions = [
   { id: 'javascript', label: 'JavaScript', extension: 'jsx' },
   { id: 'typescript', label: 'TypeScript', extension: 'tsx' },
   { id: 'python', label: 'Python', extension: 'py' },
+  { id: 'csharp', label: 'C#', extension: 'cs' },
+  { id: 'cpp', label: 'C++', extension: 'cpp' },
+  { id: 'java', label: 'Java', extension: 'java' },
+  { id: 'go', label: 'Go', extension: 'go' },
+  { id: 'php', label: 'PHP', extension: 'php' },
+  { id: 'ruby', label: 'Ruby', extension: 'rb' },
+  { id: 'sql', label: 'SQL', extension: 'sql' },
+  { id: 'powershell', label: 'PowerShell', extension: 'ps1' },
+  { id: 'vbscript', label: 'VBScript', extension: 'vbs' },
   { id: 'html', label: 'HTML', extension: 'html' },
   { id: 'css', label: 'CSS', extension: 'css' }
 ];
@@ -77,12 +86,21 @@ const libraryOptions = {
   javascript: ['React + Vite', 'Vanilla JS', 'Node', 'Express', 'Vue'],
   typescript: ['React + Vite', 'TypeScript Node', 'Vue TS', 'Vanilla TS'],
   python: ['FastAPI', 'Flask', 'CLI Script', 'Data Script'],
+  csharp: ['.NET Console', 'ASP.NET Core API', 'Unity Script', 'Windows Forms'],
+  cpp: ['Console App', 'CMake Project', 'Game Loop', 'CLI Tool'],
+  java: ['Spring Boot API', 'Console App', 'Android Activity'],
+  go: ['HTTP Server', 'CLI Tool', 'Worker Service'],
+  php: ['Laravel Route', 'Plain PHP', 'WordPress Plugin'],
+  ruby: ['Rails Controller', 'Sinatra App', 'CLI Script'],
+  sql: ['PostgreSQL Schema', 'MySQL Schema', 'SQLite Queries'],
+  powershell: ['Admin Script', 'Automation Runbook', 'Deployment Script'],
+  vbscript: ['Windows Script', 'Office Automation', 'Logon Script'],
   html: ['Vanilla HTML', 'PWA Page', 'Static Landing'],
   css: ['Plain CSS', 'CSS Modules', 'Design Tokens']
 };
 
 const defaultChatMessages = [
-  { from: 'ai', text: 'Tell me what you want to build. I can draft code for the selected language and library, or you can switch to Code Mode and type manually.' }
+  { from: 'ai', text: 'Tell me what software you want to build. I can draft code for the selected language and stack, or you can switch to Code Mode and type manually.' }
 ];
 
 const defaultWorkspace = {
@@ -96,8 +114,8 @@ const defaultWorkspace = {
     <main className="mobile-app">
       <section className="hero">
         <span>Code On The Go</span>
-        <h1>Build apps from your phone</h1>
-        <p>Prompt, edit, preview, and ship ideas anywhere.</p>
+        <h1>Build software from your phone</h1>
+        <p>Prompt, edit, preview, and ship apps, APIs, tools, and scripts anywhere.</p>
       </section>
       <ul>
         {features.map((feature) => (
@@ -196,6 +214,22 @@ function getLanguage(languageId) {
 
 function getFileName(languageId, library) {
   const extension = getLanguage(languageId).extension;
+  const fileNames = {
+    csharp: library === 'Unity Script' ? 'MobileBuilder.cs' : 'Program.cs',
+    cpp: library === 'CMake Project' ? 'main.cpp' : 'main.cpp',
+    java: library === 'Android Activity' ? 'MainActivity.java' : 'Main.java',
+    go: 'main.go',
+    php: library === 'WordPress Plugin' ? 'code-on-the-go.php' : 'index.php',
+    ruby: library === 'Rails Controller' ? 'projects_controller.rb' : 'app.rb',
+    sql: library === 'SQLite Queries' ? 'queries.sql' : 'schema.sql',
+    powershell: 'build-workspace.ps1',
+    vbscript: 'automation.vbs'
+  };
+
+  if (fileNames[languageId]) {
+    return fileNames[languageId];
+  }
+
   if (languageId === 'css') {
     return library === 'Design Tokens' ? 'tokens.css' : 'styles.css';
   }
@@ -214,6 +248,13 @@ function getFileName(languageId, library) {
 function buildGeneratedCode(prompt, language, library) {
   const title = prompt.trim() || 'mobile coding workspace';
   const cleanTitle = title.replace(/["`]/g, "'");
+  const pascalTitle = cleanTitle
+    .replace(/[^a-zA-Z0-9]+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter(Boolean)
+    .map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`)
+    .join('') || 'GeneratedProject';
 
   if (language === 'python' && library === 'FastAPI') {
     return `from fastapi import FastAPI
@@ -257,6 +298,207 @@ if __name__ == "__main__":
 
 if __name__ == "__main__":
     print(build_project())`;
+  }
+
+  if (language === 'csharp' && library === 'ASP.NET Core API') {
+    return `var builder = WebApplication.CreateBuilder(args);
+var app = builder.Build();
+
+app.MapGet("/", () => new
+{
+    project = "${cleanTitle}",
+    status = "ready",
+    stack = "ASP.NET Core API"
+});
+
+app.MapGet("/features", () => new[] { "AI Mode", "Code Mode", "Preview Mode", "Files" });
+
+app.Run();`;
+  }
+
+  if (language === 'csharp' && library === 'Unity Script') {
+    return `using UnityEngine;
+
+public class ${pascalTitle}Controller : MonoBehaviour
+{
+    [SerializeField] private string projectName = "${cleanTitle}";
+
+    private void Start()
+    {
+        Debug.Log($"Building {projectName} with Code On The Go");
+    }
+}`;
+  }
+
+  if (language === 'csharp') {
+    return `using System;
+using System.Collections.Generic;
+
+var project = "${cleanTitle}";
+var tasks = new List<string> { "plan", "code", "test", "ship" };
+
+Console.WriteLine($"Code On The Go project: {project}");
+foreach (var task in tasks)
+{
+    Console.WriteLine($"- {task}");
+}`;
+  }
+
+  if (language === 'cpp') {
+    return `#include <iostream>
+#include <vector>
+#include <string>
+
+int main() {
+    std::string project = "${cleanTitle}";
+    std::vector<std::string> steps = {"plan", "code", "test", "ship"};
+
+    std::cout << "Code On The Go project: " << project << "\\n";
+    for (const auto& step : steps) {
+        std::cout << "- " << step << "\\n";
+    }
+
+    return 0;
+}`;
+  }
+
+  if (language === 'java' && library === 'Spring Boot API') {
+    return `import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@SpringBootApplication
+@RestController
+public class Main {
+    public static void main(String[] args) {
+        SpringApplication.run(Main.class, args);
+    }
+
+    @GetMapping("/")
+    public String home() {
+        return "${cleanTitle} is ready";
+    }
+}`;
+  }
+
+  if (language === 'java') {
+    return `public class Main {
+    public static void main(String[] args) {
+        String project = "${cleanTitle}";
+        String[] steps = { "plan", "code", "test", "ship" };
+
+        System.out.println("Code On The Go project: " + project);
+        for (String step : steps) {
+            System.out.println("- " + step);
+        }
+    }
+}`;
+  }
+
+  if (language === 'go') {
+    return `package main
+
+import (
+    "encoding/json"
+    "log"
+    "net/http"
+)
+
+func main() {
+    http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+        json.NewEncoder(w).Encode(map[string]string{
+            "project": "${cleanTitle}",
+            "status": "ready",
+        })
+    })
+
+    log.Println("Code On The Go server running on :8080")
+    log.Fatal(http.ListenAndServe(":8080", nil))
+}`;
+  }
+
+  if (language === 'php' && library === 'Laravel Route') {
+    return `<?php
+
+use Illuminate\\Support\\Facades\\Route;
+
+Route::get('/', function () {
+    return response()->json([
+        'project' => '${cleanTitle}',
+        'status' => 'ready',
+    ]);
+});`;
+  }
+
+  if (language === 'php') {
+    return `<?php
+
+$project = '${cleanTitle}';
+$steps = ['plan', 'code', 'test', 'ship'];
+
+header('Content-Type: application/json');
+echo json_encode([
+    'project' => $project,
+    'steps' => $steps,
+]);`;
+  }
+
+  if (language === 'ruby' && library === 'Sinatra App') {
+    return `require "sinatra"
+require "json"
+
+get "/" do
+  content_type :json
+  { project: "${cleanTitle}", status: "ready" }.to_json
+end`;
+  }
+
+  if (language === 'ruby') {
+    return `project = "${cleanTitle}"
+steps = ["plan", "code", "test", "ship"]
+
+puts "Code On The Go project: #{project}"
+steps.each { |step| puts "- #{step}" }`;
+  }
+
+  if (language === 'sql') {
+    return `CREATE TABLE projects (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(160) NOT NULL,
+  status VARCHAR(40) NOT NULL DEFAULT 'draft',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO projects (name, status)
+VALUES ('${cleanTitle}', 'ready');
+
+SELECT id, name, status, created_at
+FROM projects
+ORDER BY created_at DESC;`;
+  }
+
+  if (language === 'powershell') {
+    return `$ProjectName = "${cleanTitle}"
+$Steps = @("plan", "code", "test", "ship")
+
+Write-Host "Code On The Go project: $ProjectName"
+foreach ($Step in $Steps) {
+    Write-Host "- $Step"
+}`;
+  }
+
+  if (language === 'vbscript') {
+    return `Dim projectName
+Dim steps
+
+projectName = "${cleanTitle}"
+steps = Array("plan", "code", "test", "ship")
+
+WScript.Echo "Code On The Go project: " & projectName
+For Each stepName In steps
+    WScript.Echo "- " & stepName
+Next`;
   }
 
   if (language === 'html') {
@@ -796,7 +1038,7 @@ function App() {
     <main className={`app theme-${currentSettings.accent} density-${currentSettings.density} editor-${currentSettings.editorSize} ${currentSettings.glass ? 'glass-on' : 'glass-off'}`}>
       <div className="ambient ambient-one" />
       <div className="ambient ambient-two" />
-      <section className={`phone-shell ${!currentUser || activeView === 'subscription' ? 'auth-shell' : ''}`} aria-label="Code On The Go mobile app">
+      <section className={`phone-shell ${!currentUser || activeView === 'subscription' ? 'auth-shell' : ''}`} aria-label="Code On The Go software workspace">
         <AppHeader
           showActions={Boolean(currentUser) && (activeView === 'app' || activeView === 'profile')}
           onOpenProfile={openProfile}
@@ -880,7 +1122,7 @@ function AppHeader({ showActions, onOpenProfile, onSelectFeature, onSignOut, act
   };
 
   return (
-    <header className="app-header">
+    <header className={`app-header ${showActions ? 'has-actions' : 'brand-only'}`}>
       {showActions && (
         <button
           className="icon-button header-menu-button"
@@ -929,7 +1171,7 @@ function AppHeader({ showActions, onOpenProfile, onSelectFeature, onSignOut, act
 
 function BrandLogo() {
   return (
-    <svg className="brand-logo" viewBox="0 0 420 120" role="img" aria-label="Code On The Go" xmlns="http://www.w3.org/2000/svg">
+    <svg className="brand-logo" viewBox="0 0 340 120" role="img" aria-label="Code On The Go" xmlns="http://www.w3.org/2000/svg">
       <title>Code On The Go</title>
       <defs>
         <linearGradient id="dynamicMarkBg" x1="18" y1="18" x2="104" y2="104" gradientUnits="userSpaceOnUse">
@@ -1519,8 +1761,8 @@ function HomeScreen({ user, activity, totalSignups, onSubscribe, onSignOut }) {
             <Sparkles size={14} />
             Pocket AI builder
           </span>
-          <h2>Build apps from your phone</h2>
-          <p>Prompt, edit, preview, and organize your code in one polished mobile workspace.</p>
+          <h2>Build software from your phone</h2>
+          <p>Prompt, edit, preview, and organize apps, APIs, scripts, and tools in one polished workspace.</p>
         </div>
         <div className="hero-device" aria-hidden="true">
           <Code2 size={34} />
@@ -1630,7 +1872,7 @@ function StackControls({ workspace, onStackChange }) {
         </select>
       </label>
       <label>
-        <span id={`${controlId}-library-label`}>Library</span>
+        <span id={`${controlId}-library-label`}>Stack</span>
         <select
           aria-labelledby={`${controlId}-library-label`}
           value={workspace.library}
@@ -1687,7 +1929,7 @@ function AiScreen({ workspace, onPrompt, onStackChange, onOpenCode }) {
           aria-label="Prompt input"
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
-          placeholder={`Ask for ${workspace.library} code...`}
+          placeholder={`Ask for ${workspace.library} software...`}
         />
         <button type="submit" aria-label="Send prompt">
           <Send size={18} />

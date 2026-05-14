@@ -1,0 +1,35 @@
+<svg width="420" height="120" viewBox="0 0 420 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="markBg" x1="18" y1="18" x2="104" y2="104" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A855F7"/>
+      <stop offset="0.55" stop-color="#7C3AED"/>
+      <stop offset="1" stop-color="#3B82F6"/>
+    </linearGradient>
+    <linearGradient id="markGlass" x1="38" y1="25" x2="86" y2="96" gradientUnits="userSpaceOnUse">
+      <stop stop-color="white" stop-opacity="0.7"/>
+      <stop offset="1" stop-color="white" stop-opacity="0.16"/>
+    </linearGradient>
+    <linearGradient id="word" x1="125" y1="30" x2="330" y2="86" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#24143F"/>
+      <stop offset="0.52" stop-color="#4C1D95"/>
+      <stop offset="1" stop-color="#2563EB"/>
+    </linearGradient>
+    <filter id="wordShadow" x="0" y="0" width="420" height="120" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="12" stdDeviation="12" flood-color="#4C1D95" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+  <g filter="url(#wordShadow)">
+    <rect x="13" y="13" width="94" height="94" rx="31" fill="url(#markBg)"/>
+    <path d="M26 44C34 24 58 18 78 27C92 33 99 47 99 63C99 86 77 103 53 98C32 94 17 68 26 44Z" fill="white" opacity="0.16"/>
+    <g transform="rotate(-8 60 60)">
+      <rect x="38" y="25" width="44" height="70" rx="14" fill="url(#markGlass)" stroke="white" stroke-opacity="0.46" stroke-width="2"/>
+      <path d="M55 49L46 60L55 71" stroke="white" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M65 49L74 60L65 71" stroke="white" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M63 45L57 76" stroke="white" stroke-width="5" stroke-linecap="round"/>
+    </g>
+    <text x="126" y="55" fill="url(#word)" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="35" font-weight="850">Code On</text>
+    <text x="128" y="84" fill="#6D28D9" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="22" font-weight="850">The Go</text>
+    <path d="M127 94H281" stroke="url(#markBg)" stroke-width="5" stroke-linecap="round"/>
+    <path d="M289 94H326" stroke="#60A5FA" stroke-width="5" stroke-linecap="round" stroke-opacity="0.7"/>
+  </g>
+</svg>

@@ -34,7 +34,8 @@ import {
   TerminalSquare,
   UsersRound,
   UserRound,
-  WandSparkles
+  WandSparkles,
+  X
 } from 'lucide-react';
 import './styles.css';
 
@@ -1118,6 +1119,7 @@ function SubscriptionScreen({ onBack, onCheckout, onRequireAccount, currentUser,
   const [selectedPlanId, setSelectedPlanId] = React.useState(currentUser?.planId ?? 'pro');
   const [provider, setProvider] = React.useState('Stripe');
   const [payment, setPayment] = React.useState({ cardNumber: '', expiry: '', reference: '' });
+  const [checkoutOpen, setCheckoutOpen] = React.useState(false);
   const [error, setError] = React.useState('');
   const selectedPlan = getPlan(selectedPlanId);
   const canCheckout = Boolean(currentUser || pendingSignup);
@@ -1137,7 +1139,24 @@ function SubscriptionScreen({ onBack, onCheckout, onRequireAccount, currentUser,
     const result = onCheckout({ planId: selectedPlanId, provider, payment });
     if (!result.ok) {
       setError(result.message);
+      setCheckoutOpen(true);
+      return;
     }
+  };
+
+  const handlePrimaryAction = () => {
+    if (!canCheckout) {
+      onRequireAccount();
+      return;
+    }
+
+    if (requiresPayment) {
+      setError('');
+      setCheckoutOpen(true);
+      return;
+    }
+
+    submitCheckout();
   };
 
   return (
@@ -1165,6 +1184,7 @@ function SubscriptionScreen({ onBack, onCheckout, onRequireAccount, currentUser,
             key={plan.name}
             onClick={() => {
               setError('');
+              setCheckoutOpen(false);
               setSelectedPlanId(plan.id);
             }}
             type="button"
@@ -1188,68 +1208,117 @@ function SubscriptionScreen({ onBack, onCheckout, onRequireAccount, currentUser,
         ))}
       </div>
 
-      {requiresPayment && (
-        <div className="payment-card">
-          <div className="payment-card-title">
-            <CreditCard size={18} />
-            <div>
-              <strong>Test Checkout</strong>
-              <span>{selectedPlan.name} through {provider}</span>
-            </div>
-          </div>
-          <div className="provider-switch" aria-label="Payment provider">
-            {['Stripe', 'PayPoint'].map((option) => (
-              <button
-                className={provider === option ? 'active' : ''}
-                key={option}
-                type="button"
-                onClick={() => {
-                  setError('');
-                  setProvider(option);
-                }}
-              >
-                {option}
-              </button>
-            ))}
-          </div>
-          {provider === 'Stripe' ? (
-            <div className="payment-fields">
-              <InputField
-                icon={CreditCard}
-                label="Card number"
-                name="cardNumber"
-                inputMode="numeric"
-                value={payment.cardNumber}
-                onChange={updatePayment}
-                placeholder="4242 4242 4242 4242"
-              />
-              <InputField
-                icon={CreditCard}
-                label="Expiry"
-                name="expiry"
-                value={payment.expiry}
-                onChange={updatePayment}
-                placeholder="12/30"
-              />
-            </div>
-          ) : (
-            <InputField
-              icon={CreditCard}
-              label="PayPoint reference"
-              name="reference"
-              value={payment.reference}
-              onChange={updatePayment}
-              placeholder="PP-TEST-1001"
-            />
-          )}
+      <div className="selected-plan-summary">
+        <div>
+          <span>Selected plan</span>
+          <strong>{selectedPlan.name}</strong>
         </div>
-      )}
+        <strong>{selectedPlan.price}</strong>
+      </div>
 
-      {error && <FormMessage message={error} />}
-      <button className="primary-action sticky-action" type="button" onClick={submitCheckout}>
-        {canCheckout ? 'Start Building' : 'Create Account'}
+      {error && !checkoutOpen && <FormMessage message={error} />}
+      <button className="primary-action sticky-action" type="button" onClick={handlePrimaryAction}>
+        {!canCheckout ? 'Create Account' : requiresPayment ? 'Continue to Checkout' : 'Start Building'}
         <ArrowRight size={18} />
       </button>
+
+      {checkoutOpen && requiresPayment && (
+        <div className="checkout-overlay">
+          <button
+            className="checkout-backdrop"
+            type="button"
+            aria-label="Close checkout"
+            onClick={() => {
+              setError('');
+              setCheckoutOpen(false);
+            }}
+          />
+          <div className="checkout-sheet" role="dialog" aria-modal="true" aria-labelledby="checkout-title">
+            <div className="checkout-handle" />
+            <div className="checkout-sheet-header">
+              <div className="payment-card-title">
+                <CreditCard size={18} />
+                <div>
+                  <strong id="checkout-title">Test Checkout</strong>
+                  <span>{selectedPlan.name} through {provider}</span>
+                </div>
+              </div>
+              <button
+                className="checkout-close"
+                type="button"
+                aria-label="Close checkout"
+                onClick={() => {
+                  setError('');
+                  setCheckoutOpen(false);
+                }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="checkout-plan-row">
+              <div>
+                <span>Plan</span>
+                <strong>{selectedPlan.name}</strong>
+              </div>
+              <strong>{selectedPlan.price}</strong>
+            </div>
+
+            <div className="provider-switch" aria-label="Payment provider">
+              {['Stripe', 'PayPoint'].map((option) => (
+                <button
+                  className={provider === option ? 'active' : ''}
+                  key={option}
+                  type="button"
+                  onClick={() => {
+                    setError('');
+                    setProvider(option);
+                  }}
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+
+            {provider === 'Stripe' ? (
+              <div className="payment-fields">
+                <InputField
+                  icon={CreditCard}
+                  label="Card number"
+                  name="cardNumber"
+                  inputMode="numeric"
+                  value={payment.cardNumber}
+                  onChange={updatePayment}
+                  placeholder="4242 4242 4242 4242"
+                />
+                <InputField
+                  icon={CreditCard}
+                  label="Expiry"
+                  name="expiry"
+                  value={payment.expiry}
+                  onChange={updatePayment}
+                  placeholder="12/30"
+                />
+              </div>
+            ) : (
+              <InputField
+                icon={CreditCard}
+                label="PayPoint reference"
+                name="reference"
+                value={payment.reference}
+                onChange={updatePayment}
+                placeholder="PP-TEST-1001"
+              />
+            )}
+
+            {error && <FormMessage message={error} />}
+            <button className="primary-action checkout-action" type="button" onClick={submitCheckout}>
+              Start Building
+              <ArrowRight size={18} />
+            </button>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

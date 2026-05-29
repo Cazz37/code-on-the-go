@@ -2849,7 +2849,7 @@ code span {
   display: grid;
   place-items: center;
   margin: 0;
-  padding: 20px;
+  padding: 12px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -2857,12 +2857,13 @@ code span {
 }
 
 .preview-phone {
-  width: min(270px, 100%);
-  min-height: 520px;
+  width: min(292px, 100%);
+  min-height: 540px;
   display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
   align-content: start;
-  gap: 18px;
-  padding: 18px;
+  gap: 12px;
+  padding: 14px;
   border: 9px solid #211633;
   border-radius: 42px;
   background: linear-gradient(180deg, #fbfaff 0%, #f2eaff 100%);
@@ -2878,47 +2879,136 @@ code span {
   font-weight: 900;
 }
 
-.preview-app-card {
-  margin-top: 70px;
-  padding: 20px;
-  border: 1px solid rgba(139, 92, 246, 0.12);
-  border-radius: 27px;
-  background: white;
-  box-shadow: 0 18px 36px rgba(88, 55, 148, 0.12);
+.preview-toolbar {
+  min-height: 44px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 1px solid rgba(124, 58, 237, 0.12);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.84);
+  box-shadow: 0 10px 24px rgba(88, 55, 148, 0.08);
 }
 
-.preview-app-card span {
+.preview-toolbar span {
+  width: fit-content;
+  padding: 7px 9px;
+  color: white;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--violet), var(--blue));
+  font-size: 0.64rem;
+  font-weight: 950;
+  white-space: nowrap;
+}
+
+.preview-toolbar strong {
   display: block;
   overflow: hidden;
-  color: var(--violet);
+  color: #33234c;
   font-size: 0.72rem;
   font-weight: 900;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.preview-app-card h3 {
-  margin: 8px 0 8px;
-  color: var(--ink);
-  font-size: 1.45rem;
+.preview-frame {
+  width: 100%;
+  height: 100%;
+  min-height: 392px;
+  border: 1px solid rgba(139, 92, 246, 0.13);
+  border-radius: 26px;
+  background: white;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.68);
 }
 
-.preview-app-card p {
-  color: var(--muted);
-  line-height: 1.45;
+.preview-output-card {
+  min-height: 392px;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid rgba(139, 92, 246, 0.13);
+  border-radius: 26px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.68);
 }
 
-.preview-app-card small {
-  display: block;
-  margin-top: 12px;
+.preview-output-card > span {
   color: var(--violet-dark);
-  font-size: 0.78rem;
+  font-size: 0.7rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.preview-output-card h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 1.2rem;
+  line-height: 1.05;
+}
+
+.preview-output-card pre {
+  overflow: auto;
+  max-height: 190px;
+  margin: 0;
+  padding: 13px;
+  color: #d8cff1;
+  border-radius: 18px;
+  background: #171225;
+  font: 0.74rem/1.55 "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  white-space: pre-wrap;
+}
+
+.preview-meta-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.preview-meta-list small {
+  padding: 7px 9px;
+  color: var(--violet-dark);
+  border-radius: 999px;
+  background: rgba(243, 232, 255, 0.78);
+  font-size: 0.68rem;
   font-weight: 900;
 }
 
-.preview-progress {
-  height: 9px;
-  margin-top: 18px;
+.preview-run-card {
+  display: grid;
+  gap: 8px;
+  padding: 15px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.84);
+  box-shadow: 0 14px 32px rgba(88, 55, 148, 0.08);
+}
+
+.preview-run-card div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.preview-run-card span,
+.preview-run-card p {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.preview-run-card strong {
+  color: var(--violet-dark);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.preview-run-card p {
+  margin: 0;
+  line-height: 1.45;
 }
 
 .file-search {

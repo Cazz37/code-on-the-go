@@ -3134,33 +3134,471 @@ function buildSmartAssistResponse({ question, language, library, code }) {
   return `I can help with this ${languageLabel} / ${library} file. For "${question}", decide whether you want an explanation or generated code. Use Ask for guidance, Generate code to replace the editor with a starter implementation, or Insert snippet to add a small reusable block.`;
 }
 
+function escapeHtml(value = '') {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function safeScript(value = '') {
+  return String(value).replace(/<\/script/gi, '<\\/script');
+}
+
+function cleanPreviewText(value = '') {
+  return String(value)
+    .replace(/{[^}]*}/g, '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extractJsxTag(code, tagName) {
+  const match = code.match(new RegExp(`<${tagName}[^>]*>([\\s\\S]*?)<\\/${tagName}>`, 'i'));
+  return cleanPreviewText(match?.[1] ?? '');
+}
+
+function extractStringList(code) {
+  const arrayMatch = code.match(/(?:const|let|var)\s+\w+\s*=\s*\[([\s\S]*?)\]/);
+  if (!arrayMatch) {
+    return [];
+  }
+
+  return Array.from(arrayMatch[1].matchAll(/["'`]([^"'`]+)["'`]/g))
+    .map((match) => match[1].trim())
+    .filter(Boolean)
+    .slice(0, 6);
+}
+
+function stripModuleSyntax(code) {
+  return code
+    .replace(/^\s*import\s+.*$/gm, '')
+    .replace(/\bexport\s+default\s+/g, '')
+    .replace(/\bexport\s+(?=(function|const|let|var|class))/g, '');
+}
+
+function wrapPreviewDocument({ title, body, style = '', script = '' }) {
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>${escapeHtml(title)}</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        color: #211538;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: linear-gradient(180deg, #fbfaff 0%, #f2eaff 100%);
+      }
+      button {
+        border: 0;
+        font: inherit;
+      }
+      .preview-shell {
+        min-height: 100vh;
+        display: grid;
+        align-content: center;
+        gap: 18px;
+        padding: 18px;
+      }
+      .hero {
+        display: grid;
+        gap: 12px;
+        padding: 20px;
+        color: white;
+        border-radius: 28px;
+        background:
+          radial-gradient(circle at 84% 12%, rgba(255, 255, 255, 0.4), transparent 30%),
+          linear-gradient(145deg, #8b5cf6 0%, #6d28d9 52%, #2563eb 130%);
+        box-shadow: 0 20px 50px rgba(76, 29, 149, 0.24);
+      }
+      .hero span,
+      .eyebrow {
+        color: rgba(255, 255, 255, 0.78);
+        font-size: 0.72rem;
+        font-weight: 850;
+        letter-spacing: 0;
+        text-transform: uppercase;
+      }
+      h1, h2, h3, p {
+        margin: 0;
+      }
+      h1 {
+        font-size: clamp(2rem, 12vw, 3.25rem);
+        line-height: 0.96;
+      }
+      p {
+        color: rgba(255, 255, 255, 0.82);
+        line-height: 1.5;
+      }
+      .feature-grid,
+      ul {
+        display: grid;
+        gap: 10px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+      .feature-grid button,
+      li,
+      .card,
+      pre {
+        padding: 13px 14px;
+        border: 1px solid rgba(124, 58, 237, 0.12);
+        border-radius: 18px;
+        color: #33234c;
+        background: rgba(255, 255, 255, 0.88);
+        box-shadow: 0 12px 28px rgba(76, 29, 149, 0.1);
+        font-weight: 850;
+      }
+      pre {
+        overflow: auto;
+        white-space: pre-wrap;
+        font: 0.78rem/1.55 "SFMono-Regular", Consolas, monospace;
+      }
+      #console-output {
+        min-height: 76px;
+        max-height: 180px;
+        overflow: auto;
+        padding: 12px;
+        border-radius: 18px;
+        color: #d8cff1;
+        background: #171225;
+        font: 0.74rem/1.5 "SFMono-Regular", Consolas, monospace;
+      }
+      #console-output:empty::before {
+        content: "No console output yet.";
+        color: #8b7aa8;
+      }
+      ${style}
+    </style>
+  </head>
+  <body>
+    ${body}
+    ${script ? `<script>${safeScript(script)}</script>` : ''}
+  </body>
+</html>`;
+}
+
+function buildJsxVisualPreviewDoc(workspace) {
+  const code = workspace.code;
+  const title = extractJsxTag(code, 'h1') || workspace.projectName || workspace.lastPrompt || workspace.fileName;
+  const kicker = extractJsxTag(code, 'span') || 'Live component preview';
+  const description = extractJsxTag(code, 'p') || `${getLanguage(workspace.language).label} / ${workspace.library}`;
+  const features = extractStringList(code);
+  const featureItems = (features.length ? features : ['Smart Assistance', 'Manual coding', 'Preview'])
+    .map((feature) => `<button>${escapeHtml(feature)}</button>`)
+    .join('');
+
+  return wrapPreviewDocument({
+    title,
+    body: `<main class="preview-shell">
+      <section class="hero">
+        <span>${escapeHtml(kicker)}</span>
+        <h1>${escapeHtml(title)}</h1>
+        <p>${escapeHtml(description)}</p>
+      </section>
+      <div class="feature-grid">${featureItems}</div>
+    </main>`
+  });
+}
+
+function buildHtmlPreviewDoc(workspace) {
+  const code = workspace.code.trim();
+  if (/<!doctype|<html[\s>]/i.test(code)) {
+    return code;
+  }
+
+  return wrapPreviewDocument({
+    title: workspace.fileName,
+    body: `<main class="preview-shell">${code || '<section class="hero"><h1>Blank HTML preview</h1><p>Start typing HTML in Code Mode.</p></section>'}</main>`
+  });
+}
+
+function buildCssPreviewDoc(workspace) {
+  return wrapPreviewDocument({
+    title: workspace.fileName,
+    style: workspace.code,
+    body: `<main class="app-shell preview-shell">
+      <section class="hero">
+        <span>CSS applied live</span>
+        <h1>${escapeHtml(workspace.projectName || 'Design preview')}</h1>
+        <p>Your stylesheet is applied to this sample app surface.</p>
+        <button>Primary action</button>
+      </section>
+    </main>`
+  });
+}
+
+function buildJavaScriptPreviewDoc(workspace) {
+  const code = stripModuleSyntax(workspace.code);
+  const script = `
+const output = document.getElementById("console-output");
+const write = (type, values) => {
+  const line = document.createElement("div");
+  line.textContent = "[" + type + "] " + values.map((value) => {
+    if (typeof value === "string") return value;
+    try { return JSON.stringify(value); } catch { return String(value); }
+  }).join(" ");
+  output.appendChild(line);
+};
+["log", "info", "warn", "error"].forEach((type) => {
+  const original = console[type].bind(console);
+  console[type] = (...values) => {
+    write(type, values);
+    original(...values);
+  };
+});
+window.addEventListener("error", (event) => write("error", [event.message]));
+try {
+${code}
+} catch (error) {
+  write("error", [error.message]);
+}`;
+
+  return wrapPreviewDocument({
+    title: workspace.fileName,
+    body: `<main class="preview-shell">
+      <div id="app" class="card">JavaScript preview target</div>
+      <div id="console-output"></div>
+    </main>`,
+    script
+  });
+}
+
+function renderMarkdown(code) {
+  const lines = code.split('\n');
+  const output = [];
+  let listItems = [];
+
+  const flushList = () => {
+    if (listItems.length) {
+      output.push(`<ul>${listItems.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`);
+      listItems = [];
+    }
+  };
+
+  lines.forEach((line) => {
+    if (/^-\s+/.test(line)) {
+      listItems.push(line.replace(/^-\s+/, ''));
+      return;
+    }
+
+    flushList();
+    if (/^###\s+/.test(line)) {
+      output.push(`<h3>${escapeHtml(line.replace(/^###\s+/, ''))}</h3>`);
+    } else if (/^##\s+/.test(line)) {
+      output.push(`<h2>${escapeHtml(line.replace(/^##\s+/, ''))}</h2>`);
+    } else if (/^#\s+/.test(line)) {
+      output.push(`<h1>${escapeHtml(line.replace(/^#\s+/, ''))}</h1>`);
+    } else if (line.trim()) {
+      output.push(`<p>${escapeHtml(line)}</p>`);
+    }
+  });
+  flushList();
+
+  return output.join('\n');
+}
+
+function buildDocumentPreviewDoc(workspace) {
+  if (workspace.language === 'markdown') {
+    return wrapPreviewDocument({
+      title: workspace.fileName,
+      body: `<main class="preview-shell markdown-preview">${renderMarkdown(workspace.code)}</main>`,
+      style: `.markdown-preview { align-content: start; } .markdown-preview h1 { color: #211538; } .markdown-preview h2, .markdown-preview h3 { color: #33234c; } .markdown-preview p { color: #6d5f8d; }`
+    });
+  }
+
+  if (workspace.language === 'json') {
+    let formatted = workspace.code;
+    try {
+      formatted = JSON.stringify(JSON.parse(workspace.code), null, 2);
+    } catch {
+      formatted = workspace.code;
+    }
+
+    return wrapPreviewDocument({
+      title: workspace.fileName,
+      body: `<main class="preview-shell"><pre>${escapeHtml(formatted)}</pre></main>`
+    });
+  }
+
+  return '';
+}
+
+function extractRoutes(code) {
+  const routePatterns = [
+    /@app\.(get|post|put|delete)\(["']([^"']+)["']\)/gi,
+    /app\.(get|post|put|delete)\(["']([^"']+)["']/gi,
+    /Map(Get|Post|Put|Delete)\(["']([^"']+)["']/gi,
+    /Route::(get|post|put|delete)\(["']([^"']+)["']/gi
+  ];
+  const routes = [];
+
+  routePatterns.forEach((pattern) => {
+    for (const match of code.matchAll(pattern)) {
+      routes.push(`${match[1].toUpperCase()} ${match[2]}`);
+    }
+  });
+
+  return [...new Set(routes)].slice(0, 5);
+}
+
+function extractNamedValue(code, names) {
+  for (const name of names) {
+    const match = code.match(new RegExp(`${name}\\s*=\\s*["']([^"']+)["']`, 'i'));
+    if (match) {
+      return match[1];
+    }
+  }
+
+  const quoted = code.match(/project["']?\s*[:=]\s*["']([^"']+)["']/i);
+  return quoted?.[1] ?? '';
+}
+
+function buildTextOutputPreview(workspace) {
+  const languageLabel = getLanguage(workspace.language).label;
+  const routes = extractRoutes(workspace.code);
+  const projectName = extractNamedValue(workspace.code, ['project', 'ProjectName', 'projectName']) || workspace.projectName || workspace.lastPrompt || workspace.fileName;
+
+  if (routes.length) {
+    return {
+      mode: 'API output',
+      title: `${workspace.library} routes`,
+      lines: [
+        `200 OK ${routes[0]}`,
+        JSON.stringify({ project: projectName, status: 'ready', builtFrom: 'Code On The Go' }, null, 2)
+      ],
+      meta: routes
+    };
+  }
+
+  if (workspace.language === 'sql') {
+    return {
+      mode: 'Query preview',
+      title: 'SQL result',
+      lines: ['id | name | status', `1  | ${projectName} | ready`],
+      meta: ['Table: projects', 'Rows: 1']
+    };
+  }
+
+  return {
+    mode: 'Console output',
+    title: `${languageLabel} run preview`,
+    lines: [`Code On The Go project: ${projectName}`, '- plan', '- code', '- test', '- ship'],
+    meta: [`${workspace.library}`, 'Hosted execution runner required for live compiled/script execution.']
+  };
+}
+
+function buildPreviewModel(workspace) {
+  const hasJsx = /<[A-Za-z][\s\S]*>/.test(workspace.code) && /return\s*\(/.test(workspace.code);
+  const isPlainBrowserScript = ['Vanilla JS', 'Vanilla TS'].includes(workspace.library) || /document\.|querySelector|innerHTML|getElementById/.test(workspace.code);
+
+  if (workspace.language === 'html') {
+    return {
+      mode: 'Live HTML',
+      status: 'Rendered',
+      srcDoc: buildHtmlPreviewDoc(workspace)
+    };
+  }
+
+  if (workspace.language === 'css') {
+    return {
+      mode: 'Live CSS',
+      status: 'Applied',
+      srcDoc: buildCssPreviewDoc(workspace)
+    };
+  }
+
+  if (['javascript', 'typescript'].includes(workspace.language)) {
+    if (hasJsx) {
+      return {
+        mode: 'Component output',
+        status: 'Rendered',
+        srcDoc: buildJsxVisualPreviewDoc(workspace)
+      };
+    }
+
+    if (isPlainBrowserScript) {
+      return {
+        mode: 'Live JavaScript',
+        status: 'Running',
+        srcDoc: buildJavaScriptPreviewDoc(workspace)
+      };
+    }
+  }
+
+  if (['markdown', 'json'].includes(workspace.language)) {
+    return {
+      mode: `${getLanguage(workspace.language).label} output`,
+      status: 'Rendered',
+      srcDoc: buildDocumentPreviewDoc(workspace)
+    };
+  }
+
+  return {
+    status: 'Output',
+    ...buildTextOutputPreview(workspace)
+  };
+}
+
 function PreviewScreen({ workspace }) {
   const runStatus = workspace.lastRunAt ? `Last run ${formatActivityTime(workspace.lastRunAt)}` : 'Not run yet';
+  const preview = buildPreviewModel(workspace);
 
   return (
     <section className="screen preview-screen">
       <div className="screen-title centered-title">
         <div>
           <p className="eyebrow">Preview Mode</p>
-          <h2>Mobile Preview</h2>
+          <h2>Live Output</h2>
         </div>
       </div>
 
       <div className="preview-stage">
-        <div className="preview-phone">
+        <div className="preview-phone live-preview-phone">
           <div className="preview-statusbar">
             <span>9:41</span>
-            <span>{workspace.lastRunAt ? 'Ran' : 'Ready'}</span>
+            <span>{preview.status}</span>
           </div>
-          <div className="preview-app-card">
-            <span>{workspace.fileName}</span>
-            <h3>{workspace.library}</h3>
-            <p>{getLanguage(workspace.language).label} project preview with {workspace.code.split('\n').length} editable lines.</p>
-            <small>{runStatus}</small>
-            <div className="preview-progress"><span /></div>
+          <div className="preview-toolbar">
+            <span>{preview.mode}</span>
+            <strong>{workspace.fileName}</strong>
           </div>
+          {preview.srcDoc ? (
+            <iframe
+              className="preview-frame"
+              title={`${workspace.fileName} output`}
+              sandbox="allow-scripts allow-forms"
+              srcDoc={preview.srcDoc}
+            />
+          ) : (
+            <div className="preview-output-card">
+              <span>{preview.mode}</span>
+              <h3>{preview.title}</h3>
+              <pre>{preview.lines.join('\n')}</pre>
+              <div className="preview-meta-list">
+                {preview.meta.map((item) => (
+                  <small key={item}>{item}</small>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
+
+      <article className="preview-run-card">
+        <div>
+          <span>{getLanguage(workspace.language).label} / {workspace.library}</span>
+          <strong>{runStatus}</strong>
+        </div>
+        <p>{preview.srcDoc ? 'This preview is rendered inside the phone frame from your current code.' : 'This output panel reads your code and shows the expected run result. Full server-side execution for this language needs a secure hosted runner.'}</p>
+      </article>
     </section>
   );
 }

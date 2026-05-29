@@ -545,11 +545,12 @@ h1 {
 
 .subscription-screen {
   position: relative;
-  height: 100%;
+  height: auto;
   min-height: 0;
   gap: 13px;
-  overflow: hidden;
+  overflow: visible;
   padding-top: 0;
+  padding-bottom: 28px;
 }
 
 .subscription-topbar {
@@ -595,12 +596,12 @@ h1 {
 }
 
 .plan-list {
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   display: grid;
   align-content: start;
   gap: 10px;
   min-height: 0;
-  overflow-y: auto;
+  overflow: visible;
   padding-right: 2px;
   scrollbar-width: none;
 }

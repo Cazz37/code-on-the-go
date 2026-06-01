@@ -41,6 +41,28 @@ function isPostgresEnabled() {
   return Boolean(getDatabaseUrl());
 }
 
+function needsPersistentDatabase() {
+  return process.env.VERCEL === '1' || process.env.VERCEL_ENV === 'production';
+}
+
+export function isMissingProductionDatabase() {
+  return needsPersistentDatabase() && !isPostgresEnabled();
+}
+
+export function createMissingDatabaseError() {
+  const error = new Error('Production database is not configured. Add DATABASE_URL or POSTGRES_URL in Vercel, then redeploy.');
+  error.code = 'MISSING_DATABASE';
+  return error;
+}
+
+export function getDatabaseMode() {
+  if (isPostgresEnabled()) {
+    return 'postgres';
+  }
+
+  return needsPersistentDatabase() ? 'missing' : 'local-dev-json';
+}
+
 async function getPool() {
   const databaseUrl = getDatabaseUrl();
   if (!pool) {
@@ -228,6 +250,10 @@ export async function getStore() {
   if (isPostgresEnabled()) {
     const db = await getPool();
     return createPostgresStore(db);
+  }
+
+  if (needsPersistentDatabase()) {
+    throw createMissingDatabaseError();
   }
 
   return createFileStore();

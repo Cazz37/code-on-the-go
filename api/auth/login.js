@@ -33,6 +33,11 @@ export default async function handler(req, res) {
       { 'Set-Cookie': createSessionCookie(user) }
     );
   } catch (error) {
+    if (error.code === 'MISSING_DATABASE') {
+      sendError(res, 503, error.message);
+      return;
+    }
+
     sendError(res, 500, 'Could not sign in.', error.message);
   }
 }

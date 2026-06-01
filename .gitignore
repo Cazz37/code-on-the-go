@@ -10,3 +10,4 @@ dev-dist/
 .env.local
 
 .vercel
+.env*

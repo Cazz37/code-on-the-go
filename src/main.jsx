@@ -12,6 +12,7 @@ import {
   Code2,
   CreditCard,
   Crown,
+  Download,
   Eye,
   FilePlus2,
   FileText,
@@ -37,6 +38,7 @@ import {
   Smartphone,
   Sparkles,
   Search,
+  Share2,
   TerminalSquare,
   Trash2,
   UsersRound,
@@ -922,6 +924,14 @@ function getPlan(planId) {
   return plans.find((plan) => plan.id === planId) ?? plans[0];
 }
 
+function isStandaloneApp() {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+}
+
 function App() {
   const initialData = React.useMemo(() => loadAppData(), []);
   const [appData, setAppData] = React.useState(initialData);
@@ -929,6 +939,9 @@ function App() {
   const [activeView, setActiveView] = React.useState(initialData.currentUserId ? 'app' : 'landing');
   const [returnView, setReturnView] = React.useState('landing');
   const [pendingSignup, setPendingSignup] = React.useState(null);
+  const [installPrompt, setInstallPrompt] = React.useState(null);
+  const [installSheetOpen, setInstallSheetOpen] = React.useState(false);
+  const [appInstalled, setAppInstalled] = React.useState(() => isStandaloneApp());
   const screenStackRef = React.useRef(null);
   const currentUser = appData.users.find((user) => user.id === appData.currentUserId) ?? null;
   const currentSettings = currentUser?.settings ?? defaultUserSettings;
@@ -969,6 +982,32 @@ function App() {
   }, [appData]);
 
   React.useEffect(() => {
+    const updateInstalled = () => setAppInstalled(isStandaloneApp());
+    const media = window.matchMedia('(display-mode: standalone)');
+    const handleBeforeInstallPrompt = (event) => {
+      event.preventDefault();
+      setInstallPrompt(event);
+      setAppInstalled(false);
+    };
+    const handleInstalled = () => {
+      setInstallPrompt(null);
+      setInstallSheetOpen(false);
+      setAppInstalled(true);
+    };
+
+    updateInstalled();
+    media.addEventListener?.('change', updateInstalled);
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleInstalled);
+
+    return () => {
+      media.removeEventListener?.('change', updateInstalled);
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleInstalled);
+    };
+  }, []);
+
+  React.useEffect(() => {
     let cancelled = false;
 
     apiRequest('/api/me')
@@ -1006,6 +1045,32 @@ function App() {
   const openProfile = () => {
     setActiveScreen('settings');
     setActiveView('app');
+  };
+
+  const handleInstallApp = async () => {
+    if (isStandaloneApp() || appInstalled) {
+      setAppInstalled(true);
+      setInstallSheetOpen(true);
+      return;
+    }
+
+    if (!installPrompt) {
+      setInstallSheetOpen(true);
+      return;
+    }
+
+    const promptEvent = installPrompt;
+    setInstallPrompt(null);
+    await promptEvent.prompt();
+    const choice = await promptEvent.userChoice;
+
+    if (choice?.outcome === 'accepted') {
+      setAppInstalled(true);
+      setInstallSheetOpen(false);
+      return;
+    }
+
+    setInstallSheetOpen(true);
   };
 
   const selectFeature = (featureId) => {
@@ -1716,7 +1781,12 @@ function App() {
             <HomeScreen
               user={currentUser}
               activity={appData.activity}
+              installPromptReady={Boolean(installPrompt)}
+              installSheetOpen={installSheetOpen}
+              appInstalled={appInstalled}
               onOpenScreen={setActiveScreen}
+              onInstallApp={handleInstallApp}
+              onCloseInstallSheet={() => setInstallSheetOpen(false)}
               onNewProject={() => {
                 setReturnView('app');
                 setActiveView('newProject');
@@ -2769,7 +2839,18 @@ function ToggleSetting({ label, checked, onChange }) {
   );
 }
 
-function HomeScreen({ user, activity, onOpenScreen, onNewProject, onSubscribe }) {
+function HomeScreen({
+  user,
+  activity,
+  installPromptReady,
+  installSheetOpen,
+  appInstalled,
+  onOpenScreen,
+  onInstallApp,
+  onCloseInstallSheet,
+  onNewProject,
+  onSubscribe
+}) {
   const plan = getPlan(user?.planId);
   const recentActivity = activity[0];
   const actions = [
@@ -2787,6 +2868,57 @@ function HomeScreen({ user, activity, onOpenScreen, onNewProject, onSubscribe })
         </div>
         <div className="plan-badge">{plan.name}</div>
       </div>
+
+      <button className={`install-app-card ${appInstalled ? 'installed' : ''}`} type="button" onClick={onInstallApp}>
+        <span className="install-app-icon">
+          {installPromptReady ? <Download size={18} /> : <Share2 size={18} />}
+        </span>
+        <span>
+          <strong>{appInstalled ? 'App installed' : 'Install app'}</strong>
+          <small>
+            {appInstalled
+              ? 'Ready from your home screen.'
+              : installPromptReady
+                ? 'Save Code On The Go to your home screen.'
+                : 'Add it to your phone for the full app experience.'}
+          </small>
+        </span>
+        <ArrowRight size={18} />
+      </button>
+
+      {installSheetOpen && (
+        <div className="install-sheet-overlay" role="dialog" aria-modal="true" aria-labelledby="install-sheet-title">
+          <button className="install-sheet-backdrop" type="button" aria-label="Close install help" onClick={onCloseInstallSheet} />
+          <div className="install-sheet">
+            <div className="checkout-handle" />
+            <div className="install-sheet-header">
+              <div>
+                <p className="eyebrow">Install app</p>
+                <h2 id="install-sheet-title">{appInstalled ? 'Already installed' : 'Add to Home Screen'}</h2>
+              </div>
+              <button className="checkout-close" type="button" aria-label="Close install help" onClick={onCloseInstallSheet}>
+                <X size={18} />
+              </button>
+            </div>
+            <div className="install-steps">
+              <article>
+                <Share2 size={18} />
+                <span>iPhone Safari</span>
+                <strong>Tap Share, then Add to Home Screen.</strong>
+              </article>
+              <article>
+                <Download size={18} />
+                <span>Android Chrome</span>
+                <strong>Tap Install app or Add to Home screen.</strong>
+              </article>
+            </div>
+            <button className="primary-action" type="button" onClick={onCloseInstallSheet}>
+              Done
+              <Check size={18} />
+            </button>
+          </div>
+        </div>
+      )}
 
       <article className="hero-card">
         <span className="hero-kicker">

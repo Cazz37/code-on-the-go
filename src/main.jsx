@@ -71,7 +71,7 @@ const featureMenuItems = [
   { id: 'preview', label: 'Preview', icon: Smartphone },
   { id: 'files', label: 'Files', icon: FolderKanban },
   { id: 'settings', label: 'Settings', icon: Settings },
-  { id: 'subscription', label: 'Subscription', icon: Crown }
+  { id: 'terms', label: 'Terms', icon: ShieldCheck }
 ];
 
 const languageOptions = [
@@ -172,6 +172,8 @@ const plans = [
 ];
 
 const storageKey = 'code-on-the-go-demo-state';
+const termsStorageKey = 'code-on-the-go-terms-accepted';
+const portfolioUserId = 'portfolio-user';
 
 const defaultUserSettings = {
   workspaceName: 'Pocket Studio',
@@ -185,6 +187,24 @@ const defaultUserSettings = {
   defaultFramework: 'React + Vite',
   cloudSync: false
 };
+
+function createPortfolioUser(settings = defaultUserSettings) {
+  return {
+    id: portfolioUserId,
+    name: '',
+    email: '',
+    planId: 'starter',
+    paymentProvider: null,
+    subscriptionStatus: 'portfolio',
+    settings: {
+      ...defaultUserSettings,
+      ...settings
+    },
+    createdAt: getNow(),
+    payments: [],
+    aiKeyConfigured: false
+  };
+}
 
 const accentOptions = [
   { id: 'violet', label: 'Violet' },
@@ -849,41 +869,37 @@ function withDefaultUserSettings(user) {
 
 function getDefaultAppData() {
   const createdAt = getNow();
+  const portfolioUser = createPortfolioUser();
 
   return {
-    currentUserId: null,
+    currentUserId: portfolioUserId,
     workspace: defaultWorkspace,
-    users: [
-      {
-        id: 'user-demo',
-        name: 'Demo Builder',
-        email: 'demo@codego.app',
-        password: 'demo123',
-        planId: 'pro',
-        paymentProvider: 'Stripe',
-        subscriptionStatus: 'active',
-        aiKeyConfigured: false,
-        settings: defaultUserSettings,
-        createdAt,
-        payments: [
-          {
-            id: 'pay-demo',
-            planId: 'pro',
-            provider: 'Stripe',
-            status: 'test_paid',
-            amount: 12,
-            last4: '4242',
-            createdAt
-          }
-        ]
-      }
-    ],
+    users: [portfolioUser],
     activity: [
       {
-        id: 'activity-demo',
-        type: 'signup',
-        message: 'Demo Builder signed up for Pro with Stripe test checkout.',
+        id: 'activity-portfolio',
+        type: 'portfolio',
+        message: 'Portfolio workspace opened for review.',
         createdAt
+      }
+    ]
+  };
+}
+
+function sanitizePortfolioData(data) {
+  const portfolioUser = createPortfolioUser(data.users?.find((user) => user.id === portfolioUserId)?.settings);
+
+  return {
+    ...data,
+    currentUserId: portfolioUserId,
+    users: [portfolioUser],
+    workspace: normalizeWorkspace(data.workspace),
+    activity: [
+      {
+        id: 'activity-portfolio',
+        type: 'portfolio',
+        message: 'Portfolio workspace opened for review.',
+        createdAt: data.activity?.[0]?.createdAt ?? getNow()
       }
     ]
   };
@@ -901,14 +917,21 @@ function loadAppData() {
     }
 
     const parsed = { ...getDefaultAppData(), ...JSON.parse(saved) };
-    return {
+    return sanitizePortfolioData({
       ...parsed,
-      workspace: normalizeWorkspace(parsed.workspace),
       users: parsed.users.map(withDefaultUserSettings)
-    };
+    });
   } catch {
     return getDefaultAppData();
   }
+}
+
+function loadTermsAccepted() {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  return window.localStorage.getItem(termsStorageKey) === 'true';
 }
 
 function formatActivityTime(value) {
@@ -934,9 +957,11 @@ function isStandaloneApp() {
 
 function App() {
   const initialData = React.useMemo(() => loadAppData(), []);
+  const initialTermsAccepted = React.useMemo(() => loadTermsAccepted(), []);
   const [appData, setAppData] = React.useState(initialData);
   const [activeScreen, setActiveScreen] = React.useState('home');
-  const [activeView, setActiveView] = React.useState(initialData.currentUserId ? 'app' : 'landing');
+  const [termsAccepted, setTermsAccepted] = React.useState(initialTermsAccepted);
+  const [activeView, setActiveView] = React.useState(initialTermsAccepted ? 'app' : 'landing');
   const [returnView, setReturnView] = React.useState('landing');
   const [pendingSignup, setPendingSignup] = React.useState(null);
   const [installPrompt, setInstallPrompt] = React.useState(null);
@@ -1007,24 +1032,12 @@ function App() {
     };
   }, []);
 
-  React.useEffect(() => {
-    let cancelled = false;
-
-    apiRequest('/api/me')
-      .then((payload) => {
-        if (!cancelled && payload.user) {
-          applyServerSession(payload);
-          setActiveView('app');
-        }
-      })
-      .catch(() => {
-        // Local Vite dev does not serve Vercel API routes; keep the offline demo state.
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [applyServerSession]);
+  const acceptTerms = () => {
+    window.localStorage.setItem(termsStorageKey, 'true');
+    setTermsAccepted(true);
+    setActiveView('app');
+    setActiveScreen('home');
+  };
 
   React.useEffect(() => {
     if (screenStackRef.current) {
@@ -1080,8 +1093,9 @@ function App() {
       return;
     }
 
-    if (featureId === 'subscription') {
-      openSubscription();
+    if (featureId === 'terms') {
+      setReturnView('app');
+      setActiveView('terms');
       return;
     }
 
@@ -1395,7 +1409,7 @@ function App() {
         {
           id: createId('activity'),
           type: 'profile',
-          message: `${displayName} updated their profile settings.`,
+          message: 'Portfolio workspace settings were updated.',
           createdAt: getNow()
         },
         ...current.activity
@@ -1616,7 +1630,7 @@ function App() {
         {
           id: createId('activity'),
           type: 'ai',
-          message: `${currentUser?.name ?? 'A user'} generated code with Smart Assistance.`,
+          message: 'Smart Assistance generated code for the portfolio workspace.',
           createdAt: getNow()
         },
         ...current.activity
@@ -1641,7 +1655,7 @@ function App() {
       ...workspace,
       lastRunAt: runAt
     });
-    appendActivity({ type: 'code', message: `${currentUser?.name ?? 'A user'} previewed ${workspace.fileName}.` });
+    appendActivity({ type: 'code', message: `Previewed ${workspace.fileName}.` });
     setActiveScreen('preview');
     return { ok: true, message: 'Preview refreshed.' };
   };
@@ -1691,7 +1705,7 @@ function App() {
       code: newFile.code
     });
     setActiveScreen('code');
-    appendActivity({ type: 'file', message: `${currentUser?.name ?? 'A user'} created ${newFile.name}.` });
+    appendActivity({ type: 'file', message: `Created ${newFile.name}.` });
   };
 
   const handleCreateProject = ({ projectName, language, framework, template, assistanceLevel }) => {
@@ -1723,7 +1737,7 @@ function App() {
       activeFileId: newFile.id,
       lastPrompt: ''
     });
-    appendActivity({ type: 'project', message: `${currentUser?.name ?? 'A user'} created ${name}.` });
+    appendActivity({ type: 'project', message: `Created ${name}.` });
     setActiveView('app');
     setActiveScreen('code');
     return { ok: true };
@@ -1733,41 +1747,19 @@ function App() {
     <main className={`app theme-${currentSettings.accent} density-${currentSettings.density} editor-${currentSettings.editorSize} ${currentSettings.glass ? 'glass-on' : 'glass-off'}`}>
       <div className="ambient ambient-one" />
       <div className="ambient ambient-two" />
-      <section className={`phone-shell ${shellModeClass} ${!currentUser || activeView === 'subscription' ? 'auth-shell' : ''}`} aria-label="Code On The Go software workspace">
+      <section className={`phone-shell ${shellModeClass} ${activeView !== 'app' ? 'auth-shell' : ''}`} aria-label="Code On The Go software workspace">
         <AppHeader
-          showActions={Boolean(currentUser) && activeView === 'app'}
+          showActions={termsAccepted && activeView === 'app'}
           onOpenProfile={openProfile}
           onSelectFeature={selectFeature}
-          onSignOut={handleSignOut}
           activeScreen={activeScreen}
         />
         <div className="screen-stack" ref={screenStackRef}>
-          {activeView === 'landing' && (
-            <LandingScreen
-              onLogin={() => setActiveView('login')}
-              onRegister={() => setActiveView('register')}
-            />
-          )}
-          {activeView === 'login' && (
-            <LoginScreen
-              onLogin={handleLogin}
-              onRegister={() => setActiveView('register')}
-              onSubscribe={openSubscription}
-            />
-          )}
-          {activeView === 'register' && (
-            <RegisterScreen
-              onLogin={() => setActiveView('login')}
-              onCreate={handleRegister}
-            />
-          )}
-          {activeView === 'subscription' && (
-            <SubscriptionScreen
-              onBack={() => setActiveView(returnView)}
-              onCheckout={handleCheckout}
-              onRequireAccount={() => setActiveView('register')}
-              currentUser={currentUser}
-              pendingSignup={pendingSignup}
+          {(activeView === 'landing' || activeView === 'terms') && (
+            <TermsNoticeScreen
+              accepted={termsAccepted}
+              onAccept={acceptTerms}
+              onBack={termsAccepted ? () => setActiveView(returnView) : null}
             />
           )}
           {activeView === 'newProject' && (
@@ -1791,7 +1783,10 @@ function App() {
                 setReturnView('app');
                 setActiveView('newProject');
               }}
-              onSubscribe={openSubscription}
+              onViewTerms={() => {
+                setReturnView('app');
+                setActiveView('terms');
+              }}
             />
           )}
           {activeView === 'app' && activeScreen === 'code' && (
@@ -1818,22 +1813,21 @@ function App() {
           {activeView === 'app' && activeScreen === 'settings' && (
             <SettingsScreen
               user={currentUser}
-              plan={getPlan(currentUser?.planId)}
               onSave={handleProfileSave}
-              onSaveAiKey={handleSaveAiKey}
-              onRemoveAiKey={handleRemoveAiKey}
-              onSubscribe={openSubscription}
-              onSignOut={handleSignOut}
+              onViewTerms={() => {
+                setReturnView('app');
+                setActiveView('terms');
+              }}
             />
           )}
         </div>
-        {activeView === 'app' && <BottomNav activeScreen={activeScreen} onChange={setActiveScreen} />}
+        {termsAccepted && activeView === 'app' && <BottomNav activeScreen={activeScreen} onChange={setActiveScreen} />}
       </section>
     </main>
   );
 }
 
-function AppHeader({ showActions, onOpenProfile, onSelectFeature, onSignOut, activeScreen }) {
+function AppHeader({ showActions, onOpenProfile, onSelectFeature, activeScreen }) {
   const [menuOpen, setMenuOpen] = React.useState(false);
 
   const chooseFeature = (featureId) => {
@@ -1879,10 +1873,6 @@ function AppHeader({ showActions, onOpenProfile, onSelectFeature, onSignOut, act
               <span>{item.label}</span>
             </button>
           ))}
-          <button className="danger-menu-item" onClick={onSignOut} type="button">
-            <LogOut size={17} />
-            <span>Sign Out</span>
-          </button>
         </div>
       )}
     </header>
@@ -1924,28 +1914,59 @@ function BrandLogo() {
   );
 }
 
-function LandingScreen({ onLogin, onRegister }) {
+function TermsNoticeScreen({ accepted, onAccept, onBack }) {
+  const [checked, setChecked] = React.useState(accepted);
+
+  const continueToApp = (event) => {
+    event.preventDefault();
+    if (checked) {
+      onAccept();
+    }
+  };
+
   return (
-    <section className="screen landing-screen">
-      <div className="landing-hero">
+    <section className="screen terms-notice-screen">
+      {onBack && (
+        <div className="subscription-topbar">
+          <button className="ghost-icon-button" type="button" onClick={onBack} aria-label="Go back">
+            <ArrowLeft size={18} />
+          </button>
+          <span>Terms</span>
+        </div>
+      )}
+
+      <div className="portfolio-notice-card">
         <span className="hero-kicker">
-          <Sparkles size={14} />
-          Mobile-first IDE
+          <ShieldCheck size={14} />
+          Personal portfolio notice
         </span>
-        <h2>Code On The Go</h2>
-        <p>Build, edit, preview, and organize software projects from your phone.</p>
+        <h1>Please note this site is for personal use and my Portfolio</h1>
       </div>
 
-      <div className="landing-actions">
-        <button className="primary-action" type="button" onClick={onLogin}>
-          Login
+      <form className="terms-card" onSubmit={continueToApp}>
+        <div className="section-heading">
+          <h2>Terms and Conditions</h2>
+          <span>Standard site terms</span>
+        </div>
+
+        <div className="terms-copy">
+          <p>This website is provided as a personal portfolio and demonstration project. It is intended for review, presentation, and personal-use purposes only.</p>
+          <p>Content, interface designs, sample workflows, generated previews, and demo features are provided as-is without warranties of availability, accuracy, fitness for a specific purpose, or uninterrupted operation.</p>
+          <p>Visitors must not misuse the site, attempt unauthorized access, upload unlawful material, reverse engineer protected parts of the service, or use the site in a way that disrupts its normal operation.</p>
+          <p>Any demo data entered into the site should be non-sensitive. Do not enter private financial, medical, legal, or confidential business information.</p>
+          <p>By continuing, you acknowledge that this is a portfolio project and agree to use it responsibly.</p>
+        </div>
+
+        <label className="terms-check">
+          <input type="checkbox" checked={checked} onChange={(event) => setChecked(event.target.checked)} />
+          <span>I have read and agree to the terms and conditions.</span>
+        </label>
+
+        <button className="primary-action" type="submit" disabled={!checked}>
+          Continue
           <ArrowRight size={18} />
         </button>
-        <button className="secondary-action" type="button" onClick={onRegister}>
-          Register
-          <UserRound size={17} />
-        </button>
-      </div>
+      </form>
     </section>
   );
 }
@@ -2678,15 +2699,13 @@ function NewProjectScreen({ workspace, onBack, onCreate }) {
   );
 }
 
-function SettingsScreen({ user, plan, onSave, onSaveAiKey, onRemoveAiKey, onSubscribe, onSignOut }) {
+function SettingsScreen({ user, onSave, onViewTerms }) {
   const userSettings = user?.settings ?? defaultUserSettings;
   const [settings, setSettings] = React.useState({
     ...defaultUserSettings,
     ...userSettings
   });
   const [message, setMessage] = React.useState('');
-  const [apiKey, setApiKey] = React.useState('');
-  const [keyMessage, setKeyMessage] = React.useState('');
   const frameworks = libraryOptions[settings.defaultLanguage] ?? libraryOptions.javascript;
 
   const update = (key, value) => {
@@ -2700,27 +2719,11 @@ function SettingsScreen({ user, plan, onSave, onSaveAiKey, onRemoveAiKey, onSubs
 
   const save = async () => {
     const result = await onSave({
-      name: user?.name ?? 'Builder',
+      name: 'Portfolio workspace',
       workspaceName: settings.workspaceName,
       settings
     });
     setMessage(result.message);
-  };
-
-  const saveKey = async (event) => {
-    event.preventDefault();
-    setKeyMessage('');
-    const result = await onSaveAiKey(apiKey.trim());
-    if (result.ok) {
-      setApiKey('');
-    }
-    setKeyMessage(result.message);
-  };
-
-  const removeKey = async () => {
-    setKeyMessage('');
-    const result = await onRemoveAiKey();
-    setKeyMessage(result.message);
   };
 
   return (
@@ -2781,49 +2784,13 @@ function SettingsScreen({ user, plan, onSave, onSaveAiKey, onRemoveAiKey, onSubs
 
       <div className="settings-card account-settings-card">
         <div>
-          <p className="eyebrow">Account</p>
-          <h3>{user?.name}</h3>
-          <span>{user?.email}</span>
+          <p className="eyebrow">Portfolio</p>
+          <h3>Personal-use demo</h3>
+          <span>This site is provided as a portfolio project.</span>
         </div>
-        <form className="api-key-settings" onSubmit={saveKey}>
-          <div className="api-key-status">
-            <KeyRound size={17} />
-            <div>
-              <strong>Personal API key</strong>
-              <span>{user?.aiKeyConfigured ? 'Connected for Smart Assistance' : 'Not connected'}</span>
-            </div>
-          </div>
-          <InputField
-            icon={KeyRound}
-            label="API key"
-            name="apiKey"
-            type="password"
-            value={apiKey}
-            onChange={(event) => {
-              setKeyMessage('');
-              setApiKey(event.target.value);
-            }}
-            placeholder="sk-..."
-          />
-          {keyMessage && <FormMessage message={keyMessage} />}
-          <div className="settings-action-row">
-            <button className="secondary-action" type="submit">
-              Save Key
-              <Check size={17} />
-            </button>
-            <button className="secondary-action" type="button" onClick={removeKey} disabled={!user?.aiKeyConfigured}>
-              Remove
-              <Trash2 size={17} />
-            </button>
-          </div>
-        </form>
-        <button className="secondary-action" type="button" onClick={onSubscribe}>
-          {plan.name} plan
-          <Crown size={17} />
-        </button>
-        <button className="secondary-action danger-action" type="button" onClick={onSignOut}>
-          Sign Out
-          <LogOut size={17} />
+        <button className="secondary-action" type="button" onClick={onViewTerms}>
+          View Terms
+          <ShieldCheck size={17} />
         </button>
       </div>
     </section>
@@ -2849,9 +2816,8 @@ function HomeScreen({
   onInstallApp,
   onCloseInstallSheet,
   onNewProject,
-  onSubscribe
+  onViewTerms
 }) {
-  const plan = getPlan(user?.planId);
   const recentActivity = activity[0];
   const actions = [
     { id: 'newProject', title: 'New Project', meta: 'Start clean', icon: FilePlus2, action: onNewProject },
@@ -2863,10 +2829,10 @@ function HomeScreen({
     <section className="screen home-screen">
       <div className="home-greeting">
         <div>
-          <span>Welcome back</span>
-          <h2>{user?.name ?? 'Builder'}</h2>
+          <span>Personal portfolio</span>
+          <h2>Code On The Go</h2>
         </div>
-        <div className="plan-badge">{plan.name}</div>
+        <div className="plan-badge">Portfolio</div>
       </div>
 
       <button className={`install-app-card ${appInstalled ? 'installed' : ''}`} type="button" onClick={onInstallApp}>
@@ -2955,10 +2921,10 @@ function HomeScreen({
         </div>
       </article>
 
-      <button className="premium-card" type="button" onClick={onSubscribe}>
-        <Crown size={20} />
-        <span>Upgrade for Smart Assistance, Team projects, and cloud sync.</span>
-        <strong>View plans</strong>
+      <button className="premium-card" type="button" onClick={onViewTerms}>
+        <ShieldCheck size={20} />
+        <span>This site is for personal use and portfolio review.</span>
+        <strong>View terms</strong>
       </button>
     </section>
   );

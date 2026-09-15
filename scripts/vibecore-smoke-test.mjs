@@ -8,6 +8,7 @@ import {
   inferBlueprint,
   validateBlueprint
 } from '../src/vibecore/engine.js';
+import { analyseReferencePixels } from '../src/vibecore/imageMapper.js';
 
 const dashboard = compileBlueprint({
   projectName: 'Pocket Reports',
@@ -61,6 +62,7 @@ const referenceBlueprint = inferBlueprint({
     name: 'reference.png',
     width: 1179,
     height: 2556,
+    mode: 'inspired',
     palette: ['#123456', '#abcdef']
   }
 });
@@ -69,9 +71,67 @@ assert.equal(referenceBlueprint.tokens.colours.primary, '#123456');
 assert.deepEqual(referenceBlueprint.reference.palette, ['#123456', '#abcdef']);
 assert.ok(
   validateBlueprint(referenceBlueprint).some(
-    (item) => item.code === 'REFERENCE' && item.level === 'pass'
+    (item) => item.code === 'REFERENCE_COLOURS' && item.level === 'pass'
   )
 );
+
+const mapperWidth = 100;
+const mapperHeight = 75;
+const mapperPixels = new Uint8ClampedArray(mapperWidth * mapperHeight * 4);
+for (let index = 0; index < mapperWidth * mapperHeight; index += 1) {
+  mapperPixels[index * 4] = 238;
+  mapperPixels[(index * 4) + 1] = 242;
+  mapperPixels[(index * 4) + 2] = 246;
+  mapperPixels[(index * 4) + 3] = 255;
+}
+for (let y = 50; y < 58; y += 1) {
+  for (let x = 30; x < 70; x += 1) {
+    const offset = ((y * mapperWidth) + x) * 4;
+    mapperPixels[offset] = 220;
+    mapperPixels[offset + 1] = 20;
+    mapperPixels[offset + 2] = 45;
+  }
+}
+const referenceAnalysis = analyseReferencePixels(mapperPixels, mapperWidth, mapperHeight);
+assert.ok(referenceAnalysis.palette[0].startsWith('#d8'));
+assert.equal(referenceAnalysis.layout.orientation, 'landscape');
+assert.ok(referenceAnalysis.layout.measuredRegions >= 4);
+assert.ok(referenceAnalysis.primaryAction);
+assert.ok(Math.abs(referenceAnalysis.primaryAction.x - 0.3) < 0.02);
+assert.ok(Math.abs(referenceAnalysis.primaryAction.width - 0.4) < 0.02);
+
+const tinyPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+const exactReference = compileBlueprint({
+  projectName: 'Secure Crew',
+  brief: 'Match this secure crew login image pixel for pixel with email, password, and sign in.',
+  recipe: 'auto',
+  target: 'react',
+  navigation: 'none',
+  palette: referenceAnalysis.palette,
+  reference: {
+    name: 'secure-crew.png',
+    width: 100,
+    height: 75,
+    mode: 'exact',
+    palette: referenceAnalysis.palette,
+    dataUrl: tinyPng,
+    mimeType: 'image/png',
+    fingerprint: 'test-reference',
+    originalPreserved: true,
+    embeddedBytes: 68,
+    analysis: referenceAnalysis
+  }
+});
+assert.equal(exactReference.blueprint.recipe.id, 'auth');
+assert.equal(exactReference.blueprint.reference.mode, 'exact');
+assert.equal(exactReference.blueprint.reference.interactions.length, 3);
+assert.ok(exactReference.previewHtml.includes('vc-exact-reference-image'));
+assert.ok(exactReference.previewHtml.includes(tinyPng));
+assert.ok(exactReference.files.some((file) => file.path === 'src/reference-image.js'));
+assert.ok(exactReference.files.find((file) => file.path === 'src/App.jsx').content.includes('referenceImage'));
+assert.ok(exactReference.diagnostics.some(
+  (item) => item.code === 'REFERENCE_FIDELITY' && item.level === 'pass'
+));
 
 const first = compileBlueprint({
   projectName: 'Repeatable',
@@ -98,32 +158,37 @@ assert.ok(transformedApp.code.includes('visibleCards'));
 
 const verificationRoot = path.join(process.cwd(), 'node_modules', '.cache');
 await fs.mkdir(verificationRoot, { recursive: true });
-const verificationDirectory = await fs.mkdtemp(
-  path.join(verificationRoot, 'vibecore-build-')
-);
-try {
-  await Promise.all(
-    dashboard.files.map(async (generatedFile) => {
-      const destination = path.join(verificationDirectory, generatedFile.path);
-      await fs.mkdir(path.dirname(destination), { recursive: true });
-      await fs.writeFile(destination, generatedFile.content);
-    })
+for (const [label, compilation] of [
+  ['standard', dashboard],
+  ['exact-reference', exactReference]
+]) {
+  const verificationDirectory = await fs.mkdtemp(
+    path.join(verificationRoot, `vibecore-${label}-`)
   );
-  const build = spawnSync(
-    path.resolve('node_modules/.bin/vite'),
-    ['build'],
-    {
-      cwd: verificationDirectory,
-      encoding: 'utf8'
-    }
-  );
-  assert.equal(
-    build.status,
-    0,
-    'Generated React project should build successfully.\n' + build.stdout + build.stderr
-  );
-} finally {
-  await fs.rm(verificationDirectory, { recursive: true, force: true });
+  try {
+    await Promise.all(
+      compilation.files.map(async (generatedFile) => {
+        const destination = path.join(verificationDirectory, generatedFile.path);
+        await fs.mkdir(path.dirname(destination), { recursive: true });
+        await fs.writeFile(destination, generatedFile.content);
+      })
+    );
+    const build = spawnSync(
+      path.resolve('node_modules/.bin/vite'),
+      ['build'],
+      {
+        cwd: verificationDirectory,
+        encoding: 'utf8'
+      }
+    );
+    assert.equal(
+      build.status,
+      0,
+      `${label} generated React project should build successfully.\n` + build.stdout + build.stderr
+    );
+  } finally {
+    await fs.rm(verificationDirectory, { recursive: true, force: true });
+  }
 }
 
 console.log('VibeCore smoke tests passed');

@@ -19,54 +19,60 @@ import {
   componentCatalog,
   getRecipe,
   navigationOptions,
+  referenceModes,
   stylePresets,
   targetOptions
 } from './catalog.js';
 import { compileBlueprint, inferBlueprint } from './engine.js';
+import { analyseReferencePixels } from './imageMapper.js';
 import './vibecore.css';
 
 const maximumReferenceBytes = 5 * 1024 * 1024;
+const maximumEmbeddedCharacters = 620000;
 
-function rgbToHex(red, green, blue) {
-  return '#' + [red, green, blue]
-    .map((value) => Math.max(0, Math.min(255, value)).toString(16).padStart(2, '0'))
-    .join('');
+function dataUrlBytes(dataUrl) {
+  const base64 = String(dataUrl).split(',')[1] ?? '';
+  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
+  return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
 }
 
-function colourDistance(first, second) {
-  return Math.sqrt(
-    ((first[0] - second[0]) ** 2) +
-    ((first[1] - second[1]) ** 2) +
-    ((first[2] - second[2]) ** 2)
-  );
+function fingerprintReference(dataUrl) {
+  let hash = 2166136261;
+  for (let index = 0; index < dataUrl.length; index += 1) {
+    hash ^= dataUrl.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return 'fnv1a-' + (hash >>> 0).toString(16).padStart(8, '0');
 }
 
-function extractPalette(context, width, height) {
-  const pixels = context.getImageData(0, 0, width, height).data;
-  const buckets = new Map();
-
-  for (let index = 0; index < pixels.length; index += 16) {
-    if (pixels[index + 3] < 210) continue;
-    const red = Math.round(pixels[index] / 32) * 32;
-    const green = Math.round(pixels[index + 1] / 32) * 32;
-    const blue = Math.round(pixels[index + 2] / 32) * 32;
-    const brightness = (red + green + blue) / 3;
-    if (brightness > 244 || brightness < 18) continue;
-    const key = [red, green, blue].join(',');
-    buckets.set(key, (buckets.get(key) ?? 0) + 1);
+function optimizeReferenceAsset(image, originalDataUrl) {
+  if (originalDataUrl.length <= maximumEmbeddedCharacters) {
+    return { dataUrl: originalDataUrl, originalPreserved: true };
   }
 
-  const selected = [];
-  [...buckets.entries()]
-    .sort((left, right) => right[1] - left[1])
-    .forEach(([key]) => {
-      const colour = key.split(',').map(Number);
-      if (selected.length < 4 && selected.every((existing) => colourDistance(existing, colour) > 66)) {
-        selected.push(colour);
-      }
-    });
+  let scale = Math.min(1, 1800 / Math.max(image.naturalWidth, image.naturalHeight));
+  let quality = 0.9;
+  let bestDataUrl = originalDataUrl;
 
-  return selected.map(([red, green, blue]) => rgbToHex(red, green, blue));
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const context = canvas.getContext('2d');
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = 'high';
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const candidate = canvas.toDataURL('image/webp', quality);
+    if (candidate.length < bestDataUrl.length) bestDataUrl = candidate;
+    if (candidate.length <= maximumEmbeddedCharacters) break;
+    if (quality > 0.68) {
+      quality -= 0.08;
+    } else {
+      scale *= 0.82;
+    }
+  }
+
+  return { dataUrl: bestDataUrl, originalPreserved: false };
 }
 
 function readReferenceImage(file) {
@@ -77,7 +83,7 @@ function readReferenceImage(file) {
       const image = new Image();
       image.onerror = () => reject(new Error('That image format could not be opened.'));
       image.onload = () => {
-        const scale = Math.min(1, 72 / Math.max(image.naturalWidth, image.naturalHeight));
+        const scale = Math.min(1, 220 / Math.max(image.naturalWidth, image.naturalHeight));
         const width = Math.max(1, Math.round(image.naturalWidth * scale));
         const height = Math.max(1, Math.round(image.naturalHeight * scale));
         const canvas = document.createElement('canvas');
@@ -85,12 +91,31 @@ function readReferenceImage(file) {
         canvas.height = height;
         const context = canvas.getContext('2d', { willReadFrequently: true });
         context.drawImage(image, 0, 0, width, height);
+        const analysis = analyseReferencePixels(
+          context.getImageData(0, 0, width, height).data,
+          width,
+          height
+        );
+        analysis.layout.aspectRatio = Number((image.naturalWidth / image.naturalHeight).toFixed(4));
+        analysis.layout.orientation = image.naturalWidth === image.naturalHeight
+          ? 'square'
+          : image.naturalWidth > image.naturalHeight
+            ? 'landscape'
+            : 'portrait';
+        const embedded = optimizeReferenceAsset(image, reader.result);
+        const mimeType = embedded.dataUrl.slice(5, embedded.dataUrl.indexOf(';'));
         resolve({
           name: file.name,
           width: image.naturalWidth,
           height: image.naturalHeight,
-          palette: extractPalette(context, width, height),
-          dataUrl: reader.result
+          palette: analysis.palette,
+          analysis,
+          dataUrl: embedded.dataUrl,
+          originalPreserved: embedded.originalPreserved,
+          sourceBytes: file.size,
+          embeddedBytes: dataUrlBytes(embedded.dataUrl),
+          fingerprint: fingerprintReference(embedded.dataUrl),
+          mimeType
         });
       };
       image.src = reader.result;
@@ -150,6 +175,9 @@ function RuleResult({ diagnostic }) {
 export default function VibeCoreScreen({ workspace, onCompile, onOpenFile }) {
   const [form, setForm] = React.useState(() => initialForm(workspace));
   const [reference, setReference] = React.useState(null);
+  const [referenceMode, setReferenceMode] = React.useState(
+    () => workspace.vibecore?.blueprint?.reference?.mode ?? 'exact'
+  );
   const [useReferencePalette, setUseReferencePalette] = React.useState(true);
   const [overlayOpacity, setOverlayOpacity] = React.useState(42);
   const [compilation, setCompilation] = React.useState(() => workspace.vibecore?.lastBuild ?? null);
@@ -194,15 +222,17 @@ export default function VibeCoreScreen({ workspace, onCompile, onOpenFile }) {
     }
 
     setBusy(true);
-    setMessage('Reading image colours on this device...');
+    setMessage('Measuring colours, geometry, and action regions on this device...');
     try {
       const analysed = await readReferenceImage(file);
       setReference(analysed);
+      setReferenceMode('exact');
       setUseReferencePalette(true);
       setMessage(
-        analysed.palette.length
-          ? 'Reference loaded and its dominant colours are ready.'
-          : 'Reference loaded. No strong colour palette was detected.'
+        'Reference ready: ' +
+        analysed.analysis.layout.measuredRegions +
+        ' layout regions measured and the complete image prepared for exact matching.' +
+        (analysed.originalPreserved ? '' : ' A storage-safe copy was created for this large image.')
       );
     } catch (error) {
       setMessage(error.message);
@@ -219,7 +249,11 @@ export default function VibeCoreScreen({ workspace, onCompile, onOpenFile }) {
     }
 
     setBusy(true);
-    setMessage('Applying component and software rules...');
+    setMessage(
+      reference && referenceMode === 'exact'
+        ? 'Embedding the complete reference and aligning its measured interactions...'
+        : 'Applying component and software rules...'
+    );
     try {
       const nextCompilation = compileBlueprint({
         ...form,
@@ -229,7 +263,14 @@ export default function VibeCoreScreen({ workspace, onCompile, onOpenFile }) {
               name: reference.name,
               width: reference.width,
               height: reference.height,
-              palette: useReferencePalette ? reference.palette : []
+              palette: useReferencePalette ? reference.palette : [],
+              mode: referenceMode,
+              dataUrl: reference.dataUrl,
+              mimeType: reference.mimeType,
+              fingerprint: reference.fingerprint,
+              originalPreserved: reference.originalPreserved,
+              embeddedBytes: reference.embeddedBytes,
+              analysis: reference.analysis
             }
           : null
       });
@@ -245,6 +286,8 @@ export default function VibeCoreScreen({ workspace, onCompile, onOpenFile }) {
 
   const previewHtml = compilation?.previewHtml;
   const generatedFiles = compilation?.files ?? [];
+  const previewReference = reference ?? compilation?.blueprint?.reference;
+  const exactReferenceBuild = compilation?.blueprint?.reference?.mode === 'exact';
 
   return (
     <section className="screen vibecore-screen">
@@ -361,7 +404,7 @@ export default function VibeCoreScreen({ workspace, onCompile, onOpenFile }) {
           <span>03</span>
           <div>
             <strong>Reference image</strong>
-            <small>Optional colour mapping and visual comparison.</small>
+            <small>Exact-image matching or editable style extraction.</small>
           </div>
         </div>
 
@@ -395,6 +438,12 @@ export default function VibeCoreScreen({ workspace, onCompile, onOpenFile }) {
 
         {reference && (
           <div className="vc-reference-tools">
+            <ChoiceGroup
+              label="Reference treatment"
+              value={referenceMode}
+              options={referenceModes}
+              onChange={setReferenceMode}
+            />
             <label className="vc-reference-toggle">
               <input
                 type="checkbox"
@@ -408,7 +457,16 @@ export default function VibeCoreScreen({ workspace, onCompile, onOpenFile }) {
                 <span key={colour} style={{ background: colour }} title={colour} />
               ))}
             </div>
-            <p>V0.1 extracts colours and provides an overlay. Layout-region tracing is the next image-mapper layer.</p>
+            <div className="vc-reference-measurements">
+              <span>{reference.analysis.layout.measuredRegions} regions</span>
+              <span>{reference.analysis.layout.orientation}</span>
+              <span>{reference.analysis.primaryAction ? 'action found' : 'visual only'}</span>
+            </div>
+            <p>
+              {referenceMode === 'exact'
+                ? 'Exact Pixels preserves the complete attached image—including its photos, logo, colours, text, and layout—and keeps its original aspect ratio. Detected controls receive aligned interactive areas.'
+                : 'Editable Layout uses the detected colours with reusable VibeCore components instead of embedding the complete image.'}
+            </p>
           </div>
         )}
       </section>
@@ -422,7 +480,11 @@ export default function VibeCoreScreen({ workspace, onCompile, onOpenFile }) {
 
       <button className="vc-compile-button" type="button" onClick={buildProject} disabled={busy}>
         <Play size={18} />
-        {busy ? 'Working locally...' : 'Compile blueprint'}
+        {busy
+          ? 'Working locally...'
+          : reference && referenceMode === 'exact'
+            ? 'Build exact reference'
+            : 'Compile blueprint'}
       </button>
 
       {compilation && (
@@ -438,13 +500,16 @@ export default function VibeCoreScreen({ workspace, onCompile, onOpenFile }) {
           <div className="vc-result-metrics">
             <article><strong>{compilation.summary.recipe}</strong><span>recipe</span></article>
             <article><strong>{compilation.summary.target}</strong><span>target</span></article>
-            <article><strong>{compilation.summary.components}</strong><span>components</span></article>
+            <article><strong>{compilation.summary.fidelity}</strong><span>fidelity</span></article>
           </div>
 
           <div className="vc-builder-preview">
             <div className="vc-builder-preview-bar">
-              <span><Smartphone size={14} /> Live preview</span>
-              {reference && (
+              <span>
+                <Smartphone size={14} />
+                {exactReferenceBuild ? 'Exact reference preview' : 'Live preview'}
+              </span>
+              {reference && !exactReferenceBuild && (
                 <label>
                   Overlay
                   <input
@@ -457,7 +522,12 @@ export default function VibeCoreScreen({ workspace, onCompile, onOpenFile }) {
                 </label>
               )}
             </div>
-            <div className="vc-preview-layers">
+            <div
+              className={'vc-preview-layers ' + (previewReference ? 'has-reference-ratio' : '')}
+              style={previewReference
+                ? { aspectRatio: `${previewReference.width} / ${previewReference.height}` }
+                : undefined}
+            >
               {previewHtml && (
                 <iframe
                   title={compilation.blueprint.name + ' VibeCore preview'}
@@ -465,7 +535,7 @@ export default function VibeCoreScreen({ workspace, onCompile, onOpenFile }) {
                   srcDoc={previewHtml}
                 />
               )}
-              {reference && overlayOpacity > 0 && (
+              {reference && !exactReferenceBuild && overlayOpacity > 0 && (
                 <img
                   className="vc-reference-overlay"
                   src={reference.dataUrl}
@@ -511,7 +581,7 @@ export default function VibeCoreScreen({ workspace, onCompile, onOpenFile }) {
 
       <aside className="vc-engine-note">
         <Palette size={16} />
-        <p><strong>What this first engine understands:</strong> phone-first web interfaces built from its registered recipes and parts. More component and language packs can be added without changing the compiler contract.</p>
+        <p><strong>VibeCore image mapper:</strong> Exact Pixels retains the complete visual reference at the measured ratio. Editable Layout continues to build from registered recipes and reusable parts.</p>
       </aside>
     </section>
   );

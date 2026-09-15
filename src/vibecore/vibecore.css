@@ -388,6 +388,23 @@
   line-height: 1.45;
 }
 
+.vc-reference-measurements {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.vc-reference-measurements span {
+  padding: 6px 8px;
+  color: #5f5274;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.78);
+  font-size: 0.62rem;
+  font-weight: 900;
+  text-transform: capitalize;
+}
+
 .vc-builder-message {
   min-height: 48px;
   display: grid;
@@ -525,6 +542,10 @@
   background: white;
 }
 
+.vc-preview-layers.has-reference-ratio {
+  height: auto;
+}
+
 .vc-preview-layers iframe,
 .vc-reference-overlay {
   position: absolute;
@@ -535,7 +556,7 @@
 }
 
 .vc-reference-overlay {
-  object-fit: fill;
+  object-fit: contain;
   pointer-events: none;
 }
 

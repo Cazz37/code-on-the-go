@@ -1,5 +1,6 @@
 import { sendJson } from './_lib/http.js';
 import { getDatabaseMode, getStore, isMissingProductionDatabase } from './_lib/store.js';
+import { isPrivateAccessConfigured } from './_lib/privateAccess.js';
 
 export default async function handler(req, res) {
   if (isMissingProductionDatabase()) {
@@ -9,6 +10,7 @@ export default async function handler(req, res) {
       error: 'Production database is not configured. Add DATABASE_URL or POSTGRES_URL in Vercel, then redeploy.',
       aiConfigured: Boolean(process.env.OPENAI_API_KEY),
       personalAiKeysSupported: true,
+      privateAccessConfigured: isPrivateAccessConfigured(),
       stripeConfigured: Boolean(process.env.STRIPE_SECRET_KEY),
       payPointConfigured: Boolean(process.env.PAYPOINT_API_KEY)
     });
@@ -21,6 +23,7 @@ export default async function handler(req, res) {
     database: store.persistent ? 'postgres' : getDatabaseMode(),
     aiConfigured: Boolean(process.env.OPENAI_API_KEY),
     personalAiKeysSupported: true,
+    privateAccessConfigured: isPrivateAccessConfigured(),
     stripeConfigured: Boolean(process.env.STRIPE_SECRET_KEY),
     payPointConfigured: Boolean(process.env.PAYPOINT_API_KEY)
   });

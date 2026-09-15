@@ -332,6 +332,36 @@ h1 {
   padding-top: 0;
 }
 
+.access-loading-screen {
+  align-items: center;
+  min-height: 420px;
+  text-align: center;
+}
+
+.private-lock-orbit {
+  width: 82px;
+  height: 82px;
+  display: grid;
+  place-items: center;
+  color: white;
+  border: 8px solid rgba(255, 255, 255, 0.72);
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--violet), var(--blue));
+  box-shadow: 0 18px 44px rgba(76, 29, 149, 0.24);
+  animation: private-lock-pulse 1.4s ease-in-out infinite alternate;
+}
+
+@keyframes private-lock-pulse {
+  from {
+    transform: scale(0.96);
+    box-shadow: 0 14px 34px rgba(76, 29, 149, 0.18);
+  }
+  to {
+    transform: scale(1.04);
+    box-shadow: 0 22px 52px rgba(76, 29, 149, 0.3);
+  }
+}
+
 .terms-notice-screen {
   gap: 16px;
 }
@@ -510,6 +540,26 @@ h1 {
   width: 16px;
   height: 16px;
   accent-color: var(--violet);
+}
+
+.private-access-note {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  padding: 11px 12px;
+  color: #675a80;
+  border: 1px solid rgba(124, 58, 237, 0.12);
+  border-radius: 15px;
+  background: rgba(248, 245, 255, 0.74);
+  font-size: 0.78rem;
+  font-weight: 750;
+  line-height: 1.4;
+}
+
+.private-access-note svg {
+  margin-top: 1px;
+  color: var(--violet);
 }
 
 .form-options button,

@@ -174,8 +174,8 @@ const plans = [
 ];
 
 const storageKey = 'code-on-the-go-demo-state';
+const privateStoragePrefix = 'code-on-the-go-private-user-';
 const termsStorageKey = 'code-on-the-go-terms-accepted';
-const portfolioUserId = 'portfolio-user';
 
 const defaultUserSettings = {
   workspaceName: 'Pocket Studio',
@@ -189,24 +189,6 @@ const defaultUserSettings = {
   defaultFramework: 'React + Vite',
   cloudSync: false
 };
-
-function createPortfolioUser(settings = defaultUserSettings) {
-  return {
-    id: portfolioUserId,
-    name: '',
-    email: '',
-    planId: 'starter',
-    paymentProvider: null,
-    subscriptionStatus: 'portfolio',
-    settings: {
-      ...defaultUserSettings,
-      ...settings
-    },
-    createdAt: getNow(),
-    payments: [],
-    aiKeyConfigured: false
-  };
-}
 
 const accentOptions = [
   { id: 'violet', label: 'Violet' },
@@ -870,40 +852,21 @@ function withDefaultUserSettings(user) {
 }
 
 function getDefaultAppData() {
-  const createdAt = getNow();
-  const portfolioUser = createPortfolioUser();
-
   return {
-    currentUserId: portfolioUserId,
+    currentUserId: null,
     workspace: defaultWorkspace,
-    users: [portfolioUser],
-    activity: [
-      {
-        id: 'activity-portfolio',
-        type: 'portfolio',
-        message: 'Portfolio workspace opened for review.',
-        createdAt
-      }
-    ]
+    users: [],
+    activity: []
   };
 }
 
-function sanitizePortfolioData(data) {
-  const portfolioUser = createPortfolioUser(data.users?.find((user) => user.id === portfolioUserId)?.settings);
-
+function sanitizeStoredData(data) {
   return {
-    ...data,
-    currentUserId: portfolioUserId,
-    users: [portfolioUser],
+    ...getDefaultAppData(),
+    currentUserId: null,
+    users: [],
     workspace: normalizeWorkspace(data.workspace),
-    activity: [
-      {
-        id: 'activity-portfolio',
-        type: 'portfolio',
-        message: 'Portfolio workspace opened for review.',
-        createdAt: data.activity?.[0]?.createdAt ?? getNow()
-      }
-    ]
+    activity: []
   };
 }
 
@@ -919,12 +882,22 @@ function loadAppData() {
     }
 
     const parsed = { ...getDefaultAppData(), ...JSON.parse(saved) };
-    return sanitizePortfolioData({
-      ...parsed,
-      users: parsed.users.map(withDefaultUserSettings)
-    });
+    return sanitizeStoredData(parsed);
   } catch {
     return getDefaultAppData();
+  }
+}
+
+function loadPrivateUserData(userId) {
+  if (typeof window === 'undefined' || !userId) {
+    return null;
+  }
+
+  try {
+    const saved = window.localStorage.getItem(`${privateStoragePrefix}${userId}`);
+    return saved ? JSON.parse(saved) : null;
+  } catch {
+    return null;
   }
 }
 
@@ -963,8 +936,9 @@ function App() {
   const [appData, setAppData] = React.useState(initialData);
   const [activeScreen, setActiveScreen] = React.useState('home');
   const [termsAccepted, setTermsAccepted] = React.useState(initialTermsAccepted);
-  const [activeView, setActiveView] = React.useState(initialTermsAccepted ? 'app' : 'landing');
-  const [returnView, setReturnView] = React.useState('landing');
+  const [activeView, setActiveView] = React.useState('loading');
+  const [returnView, setReturnView] = React.useState('app');
+  const [sessionMessage, setSessionMessage] = React.useState('');
   const [pendingSignup, setPendingSignup] = React.useState(null);
   const [installPrompt, setInstallPrompt] = React.useState(null);
   const [installSheetOpen, setInstallSheetOpen] = React.useState(false);
@@ -979,6 +953,8 @@ function App() {
     if (!payload?.user) {
       return;
     }
+
+    const privateCache = loadPrivateUserData(payload.user.id);
 
     setAppData((current) => {
       const existingUser = current.users.find((user) => user.id === payload.user.id);
@@ -998,15 +974,57 @@ function App() {
         ...current,
         currentUserId: nextUser.id,
         users: [...otherUsers, nextUser],
-        workspace: payload.workspace ? normalizeWorkspace(payload.workspace) : current.workspace,
-        activity: payload.activity?.length ? payload.activity : current.activity
+        workspace: privateCache?.workspace
+          ? normalizeWorkspace(privateCache.workspace)
+          : payload.workspace
+            ? normalizeWorkspace(payload.workspace)
+            : current.workspace,
+        activity: payload.activity?.length
+          ? payload.activity
+          : privateCache?.activity ?? current.activity
       };
     });
   }, []);
 
   React.useEffect(() => {
-    window.localStorage.setItem(storageKey, JSON.stringify(appData));
+    if (!appData.currentUserId) {
+      return;
+    }
+
+    window.localStorage.setItem(
+      `${privateStoragePrefix}${appData.currentUserId}`,
+      JSON.stringify({
+        workspace: appData.workspace,
+        activity: appData.activity
+      })
+    );
   }, [appData]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    apiRequest('/api/me')
+      .then((payload) => {
+        if (cancelled) return;
+        applyServerSession(payload);
+        setSessionMessage('');
+        setActiveView('app');
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setAppData(getDefaultAppData());
+        setSessionMessage(
+          error.status === 503
+            ? error.message
+            : ''
+        );
+        setActiveView('login');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [applyServerSession]);
 
   React.useEffect(() => {
     const updateInstalled = () => setAppInstalled(isStandaloneApp());
@@ -1037,8 +1055,7 @@ function App() {
   const acceptTerms = () => {
     window.localStorage.setItem(termsStorageKey, 'true');
     setTermsAccepted(true);
-    setActiveView('app');
-    setActiveScreen('home');
+    setActiveView(returnView === 'terms' ? 'app' : returnView);
   };
 
   React.useEffect(() => {
@@ -1048,6 +1065,7 @@ function App() {
   }, [activeScreen, activeView]);
 
   const enterApp = () => {
+    setSessionMessage('');
     setActiveView('app');
     setActiveScreen('home');
   };
@@ -1136,91 +1154,40 @@ function App() {
       enterApp();
       return { ok: true };
     } catch (error) {
-      if (error.status && error.status !== 404) {
-        return { ok: false, message: error.message };
-      }
+      return { ok: false, message: error.message };
     }
-
-    const user = appData.users.find((candidate) => candidate.email === normalizedEmail);
-
-    if (!user || user.password !== password) {
-      return { ok: false, message: 'No matching account found for those details.' };
-    }
-
-    setAppData((current) => ({ ...current, currentUserId: user.id }));
-    appendActivity({ type: 'login', message: `${user.name} signed in.` });
-    enterApp();
-    return { ok: true };
   };
 
-  const handleRegister = async ({ name, email, password, confirmPassword }) => {
+  const handleRegister = async ({ inviteCode, email, password, confirmPassword }) => {
     const normalizedEmail = normalizeEmail(email);
 
-    if (!name.trim() || !normalizedEmail || !password) {
-      return { ok: false, message: 'Add your name, email, and password.' };
+    if (!inviteCode.trim() || !normalizedEmail || !password) {
+      return { ok: false, message: 'Add your invitation code, email, and password.' };
     }
 
-    if (password.length < 6) {
-      return { ok: false, message: 'Use at least 6 characters for the password.' };
+    if (password.length < 12) {
+      return { ok: false, message: 'Use at least 12 characters for the password.' };
     }
 
     if (password !== confirmPassword) {
       return { ok: false, message: 'Passwords must match.' };
     }
 
-    if (appData.users.some((user) => user.email === normalizedEmail)) {
-      return { ok: false, message: 'That email is already registered. Sign in instead.' };
-    }
-
     try {
       const registerPayload = await apiRequest('/api/auth/register', {
         method: 'POST',
         body: JSON.stringify({
-          name: name.trim(),
+          inviteCode: inviteCode.trim(),
           email: normalizedEmail,
-          password,
-          planId: 'starter'
+          password
         })
       });
       applyServerSession(registerPayload);
       enterApp();
       return { ok: true };
     } catch (error) {
-      if (error.status && error.status !== 404) {
-        return { ok: false, message: error.message };
-      }
+      return { ok: false, message: error.message };
     }
-
-    const createdAt = getNow();
-    const newUser = {
-      id: createId('user'),
-      name: name.trim(),
-      email: normalizedEmail,
-      password,
-      planId: 'starter',
-      paymentProvider: 'None',
-      subscriptionStatus: 'free',
-      settings: defaultUserSettings,
-      createdAt,
-      payments: []
-    };
-
-    setAppData((current) => ({
-      ...current,
-      currentUserId: newUser.id,
-      users: [...current.users, newUser],
-      activity: [
-        {
-          id: createId('activity'),
-          type: 'signup',
-          message: `${newUser.name} created an account.`,
-          createdAt
-        },
-        ...current.activity
-      ].slice(0, 20)
-    }));
-    enterApp();
-    return { ok: true };
   };
 
   const handleCheckout = async ({ planId, provider, payment }) => {
@@ -1356,9 +1323,9 @@ function App() {
 
   const handleSignOut = async () => {
     apiRequest('/api/auth/logout', { method: 'POST' }).catch(() => {});
-    setAppData((current) => ({ ...current, currentUserId: null }));
+    setAppData(getDefaultAppData());
     setActiveScreen('home');
-    setActiveView('landing');
+    setActiveView('login');
   };
 
   const handleProfileSave = async ({ name, workspaceName, settings }) => {
@@ -1834,27 +1801,44 @@ function App() {
       <div className="ambient ambient-two" />
       <section className={`phone-shell ${shellModeClass} ${activeView !== 'app' ? 'auth-shell' : ''}`} aria-label="Code On The Go software workspace">
         <AppHeader
-          showActions={termsAccepted && activeView === 'app'}
+          showActions={Boolean(currentUser) && activeView === 'app'}
           onOpenProfile={openProfile}
           onSelectFeature={selectFeature}
           activeScreen={activeScreen}
         />
         <div className="screen-stack" ref={screenStackRef}>
-          {(activeView === 'landing' || activeView === 'terms') && (
+          {activeView === 'loading' && <AccessLoadingScreen />}
+          {activeView === 'login' && (
+            <LoginScreen
+              notice={sessionMessage}
+              onLogin={handleLogin}
+              onRegister={() => {
+                setSessionMessage('');
+                setActiveView('register');
+              }}
+            />
+          )}
+          {activeView === 'register' && (
+            <RegisterScreen
+              onLogin={() => setActiveView('login')}
+              onCreate={handleRegister}
+            />
+          )}
+          {activeView === 'terms' && (
             <TermsNoticeScreen
               accepted={termsAccepted}
               onAccept={acceptTerms}
-              onBack={termsAccepted ? () => setActiveView(returnView) : null}
+              onBack={() => setActiveView(returnView)}
             />
           )}
-          {activeView === 'newProject' && (
+          {currentUser && activeView === 'newProject' && (
             <NewProjectScreen
               workspace={workspace}
               onBack={() => setActiveView('app')}
               onCreate={handleCreateProject}
             />
           )}
-          {activeView === 'app' && activeScreen === 'home' && (
+          {currentUser && activeView === 'app' && activeScreen === 'home' && (
             <HomeScreen
               user={currentUser}
               activity={appData.activity}
@@ -1870,14 +1854,14 @@ function App() {
               }}
             />
           )}
-          {activeView === 'app' && activeScreen === 'vibecore' && (
+          {currentUser && activeView === 'app' && activeScreen === 'vibecore' && (
             <VibeCoreScreen
               workspace={workspace}
               onCompile={handleVibeCoreCompile}
               onOpenFile={handleOpenVibeCoreFile}
             />
           )}
-          {activeView === 'app' && activeScreen === 'code' && (
+          {currentUser && activeView === 'app' && activeScreen === 'code' && (
             <CodeScreen
               workspace={workspace}
               settings={currentSettings}
@@ -1890,18 +1874,19 @@ function App() {
               onCreateFile={handleCreateFile}
             />
           )}
-          {activeView === 'app' && activeScreen === 'preview' && <PreviewScreen workspace={workspace} />}
-          {activeView === 'app' && activeScreen === 'files' && (
+          {currentUser && activeView === 'app' && activeScreen === 'preview' && <PreviewScreen workspace={workspace} />}
+          {currentUser && activeView === 'app' && activeScreen === 'files' && (
             <FilesScreen
               workspace={workspace}
               onOpenFile={(fileId) => handleOpenFile(fileId, true)}
               onCreateFile={handleCreateFile}
             />
           )}
-          {activeView === 'app' && activeScreen === 'settings' && (
+          {currentUser && activeView === 'app' && activeScreen === 'settings' && (
             <SettingsScreen
               user={currentUser}
               onSave={handleProfileSave}
+              onSignOut={handleSignOut}
               onViewTerms={() => {
                 setReturnView('app');
                 setActiveView('terms');
@@ -1909,7 +1894,7 @@ function App() {
             />
           )}
         </div>
-        {termsAccepted && activeView === 'app' && <BottomNav activeScreen={activeScreen} onChange={setActiveScreen} />}
+        {currentUser && activeView === 'app' && <BottomNav activeScreen={activeScreen} onChange={setActiveScreen} />}
       </section>
     </main>
   );
@@ -2059,9 +2044,25 @@ function TermsNoticeScreen({ accepted, onAccept, onBack }) {
   );
 }
 
-function LoginScreen({ onLogin, onRegister, onSubscribe }) {
+function AccessLoadingScreen() {
+  return (
+    <section className="screen auth-screen access-loading-screen" aria-live="polite">
+      <div className="private-lock-orbit">
+        <ShieldCheck size={32} />
+      </div>
+      <div className="auth-intro">
+        <span className="pill auth-pill">Private workspace</span>
+        <h2>Checking access</h2>
+        <p>Opening your secure Code On The Go session…</p>
+      </div>
+    </section>
+  );
+}
+
+function LoginScreen({ onLogin, onRegister, notice = '' }) {
   const [form, setForm] = React.useState({ email: '', password: '' });
   const [error, setError] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
 
   const updateField = (event) => {
     setError('');
@@ -2070,7 +2071,10 @@ function LoginScreen({ onLogin, onRegister, onSubscribe }) {
 
   const submitLogin = async (event) => {
     event.preventDefault();
+    if (busy) return;
+    setBusy(true);
     const result = await onLogin(form);
+    setBusy(false);
     if (!result.ok) {
       setError(result.message);
     }
@@ -2095,6 +2099,7 @@ function LoginScreen({ onLogin, onRegister, onSubscribe }) {
           type="text"
           inputMode="email"
           autoCapitalize="none"
+          autoComplete="email"
           value={form.email}
           onChange={updateField}
           placeholder="you@example.com"
@@ -2104,36 +2109,36 @@ function LoginScreen({ onLogin, onRegister, onSubscribe }) {
           label="Password"
           name="password"
           type="password"
+          autoComplete="current-password"
           value={form.password}
           onChange={updateField}
           placeholder="Enter password"
           actionIcon={Eye}
         />
-        <div className="form-options">
-          <label>
-            <input type="checkbox" defaultChecked />
-            Remember me
-          </label>
-          <button type="button" onClick={() => setError('Password reset link would be sent from the backend.')}>Forgot password</button>
+        <div className="private-access-note">
+          <LockKeyhole size={15} />
+          <span>Your secure session stays signed in on this device for 14 days.</span>
         </div>
+        {notice && !error && <FormMessage message={notice} />}
         {error && <FormMessage message={error} />}
-        <button className="primary-action" type="submit">
-          Sign In
+        <button className="primary-action" type="submit" disabled={busy}>
+          {busy ? 'Checking…' : 'Sign In'}
           <ArrowRight size={18} />
         </button>
       </form>
 
       <div className="auth-switcher">
-        <button type="button" onClick={onRegister}>Create account</button>
-        <button type="button" onClick={onSubscribe}>View plans</button>
+        <span>Have one of the two private invitations?</span>
+        <button type="button" onClick={onRegister}>Activate access</button>
       </div>
     </section>
   );
 }
 
 function RegisterScreen({ onLogin, onCreate }) {
-  const [form, setForm] = React.useState({ name: '', email: '', password: '', confirmPassword: '' });
+  const [form, setForm] = React.useState({ inviteCode: '', email: '', password: '', confirmPassword: '' });
   const [error, setError] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
 
   const updateField = (event) => {
     setError('');
@@ -2142,7 +2147,10 @@ function RegisterScreen({ onLogin, onCreate }) {
 
   const submitRegister = async (event) => {
     event.preventDefault();
+    if (busy) return;
+    setBusy(true);
     const result = await onCreate(form);
+    setBusy(false);
     if (!result.ok) {
       setError(result.message);
     }
@@ -2152,22 +2160,24 @@ function RegisterScreen({ onLogin, onCreate }) {
     <section className="screen auth-screen">
       <div className="auth-intro">
         <span className="pill auth-pill">
-          <Sparkles size={14} />
-          Start coding today
+          <KeyRound size={14} />
+          Invitation only
         </span>
-        <h2>Create your account</h2>
-        <p>Set up a mobile coding studio that is ready for projects, files, and previews.</p>
+        <h2>Activate private access</h2>
+        <p>Only Caren van Wyk and Ruan Thomas can activate access. Both accounts are administrators.</p>
       </div>
 
       <form className="auth-card" onSubmit={submitRegister}>
         <InputField
-          icon={UserRound}
-          label="Full name"
-          name="name"
+          icon={KeyRound}
+          label="Private invitation code"
+          name="inviteCode"
           type="text"
-          value={form.name}
+          autoCapitalize="none"
+          autoComplete="off"
+          value={form.inviteCode}
           onChange={updateField}
-          placeholder="Your name"
+          placeholder="COTG-…"
         />
         <InputField
           icon={Mail}
@@ -2176,6 +2186,7 @@ function RegisterScreen({ onLogin, onCreate }) {
           type="text"
           inputMode="email"
           autoCapitalize="none"
+          autoComplete="email"
           value={form.email}
           onChange={updateField}
           placeholder="you@example.com"
@@ -2185,9 +2196,10 @@ function RegisterScreen({ onLogin, onCreate }) {
           label="Password"
           name="password"
           type="password"
+          autoComplete="new-password"
           value={form.password}
           onChange={updateField}
-          placeholder="Create password"
+          placeholder="At least 12 characters"
           actionIcon={Eye}
         />
         <InputField
@@ -2195,20 +2207,21 @@ function RegisterScreen({ onLogin, onCreate }) {
           label="Confirm password"
           name="confirmPassword"
           type="password"
+          autoComplete="new-password"
           value={form.confirmPassword}
           onChange={updateField}
           placeholder="Confirm password"
           actionIcon={Eye}
         />
         {error && <FormMessage message={error} />}
-        <button className="primary-action" type="submit">
-          Create Account
+        <button className="primary-action" type="submit" disabled={busy}>
+          {busy ? 'Activating…' : 'Activate Access'}
           <ArrowRight size={18} />
         </button>
       </form>
 
       <div className="auth-switcher">
-        <span>Already registered?</span>
+        <span>Already activated?</span>
         <button type="button" onClick={onLogin}>Sign in</button>
       </div>
     </section>
@@ -2787,7 +2800,7 @@ function NewProjectScreen({ workspace, onBack, onCreate }) {
   );
 }
 
-function SettingsScreen({ user, onSave, onViewTerms }) {
+function SettingsScreen({ user, onSave, onViewTerms, onSignOut }) {
   const userSettings = user?.settings ?? defaultUserSettings;
   const [settings, setSettings] = React.useState({
     ...defaultUserSettings,
@@ -2807,7 +2820,7 @@ function SettingsScreen({ user, onSave, onViewTerms }) {
 
   const save = async () => {
     const result = await onSave({
-      name: 'Portfolio workspace',
+      name: user?.name ?? 'Private builder',
       workspaceName: settings.workspaceName,
       settings
     });
@@ -2872,13 +2885,17 @@ function SettingsScreen({ user, onSave, onViewTerms }) {
 
       <div className="settings-card account-settings-card">
         <div>
-          <p className="eyebrow">Portfolio</p>
-          <h3>Personal-use demo</h3>
-          <span>This site is provided as a portfolio project.</span>
+          <p className="eyebrow">Private access</p>
+          <h3>{user?.name}</h3>
+          <span>Administrator · {user?.email}</span>
         </div>
         <button className="secondary-action" type="button" onClick={onViewTerms}>
           View Terms
           <ShieldCheck size={17} />
+        </button>
+        <button className="secondary-action sign-out-action" type="button" onClick={onSignOut}>
+          Sign Out
+          <LogOut size={17} />
         </button>
       </div>
     </section>
@@ -2916,10 +2933,10 @@ function HomeScreen({
     <section className="screen home-screen">
       <div className="home-greeting">
         <div>
-          <span>Personal portfolio</span>
+          <span>Welcome back, {user?.name?.split(' ')[0] ?? 'Builder'}</span>
           <h2>Code On The Go</h2>
         </div>
-        <div className="plan-badge">Portfolio</div>
+        <div className="plan-badge">Private</div>
       </div>
 
       <button className={`install-app-card ${appInstalled ? 'installed' : ''}`} type="button" onClick={onInstallApp}>
@@ -3010,7 +3027,7 @@ function HomeScreen({
 
       <button className="premium-card" type="button" onClick={onViewTerms}>
         <ShieldCheck size={20} />
-        <span>This site is for personal use and portfolio review.</span>
+        <span>Caren and Ruan · private administrator access</span>
         <strong>View terms</strong>
       </button>
     </section>

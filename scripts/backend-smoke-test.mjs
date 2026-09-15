@@ -1,7 +1,9 @@
 import { Readable } from 'node:stream';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import assert from 'node:assert/strict';
+import bcrypt from 'bcryptjs';
 
 import health from '../api/health.js';
 import register from '../api/auth/register.js';
@@ -13,11 +15,17 @@ import aiGenerate from '../api/ai/generate.js';
 import aiKey from '../api/ai/key.js';
 import checkoutCreate from '../api/checkout/create.js';
 
-process.env.APP_JWT_SECRET = 'backend-smoke-test-secret';
-process.env.APP_ENCRYPTION_KEY = 'backend-smoke-test-encryption-secret';
+process.env.APP_JWT_SECRET = crypto.randomBytes(32).toString('hex');
+process.env.APP_ENCRYPTION_KEY = crypto.randomBytes(32).toString('hex');
 process.env.ALLOW_TEST_AI = 'true';
 process.env.ALLOW_TEST_PAYMENTS = 'true';
 process.env.LOCAL_DB_PATH = path.join(process.cwd(), '.data', `backend-smoke-${Date.now()}.json`);
+const ownerInvite = `test-caren-${crypto.randomBytes(24).toString('base64url')}`;
+process.env.PRIVATE_CAREN_INVITE_HASH = bcrypt.hashSync(ownerInvite, 4);
+process.env.PRIVATE_RUAN_INVITE_HASH = bcrypt.hashSync(
+  `test-ruan-${crypto.randomBytes(24).toString('base64url')}`,
+  4
+);
 
 await fs.rm(process.env.LOCAL_DB_PATH, { force: true });
 
@@ -54,19 +62,43 @@ async function call(handler, method = 'GET', body, headers = {}) {
 const healthResult = await call(health);
 assert.equal(healthResult.status, 200);
 assert.equal(healthResult.payload.ok, true);
+assert.equal(healthResult.payload.privateAccessConfigured, true);
 
 const email = `smoke-${Date.now()}@codego.app`;
+const password = `Smoke-${crypto.randomBytes(18).toString('base64url')}`;
+
+const openRegistrationResult = await call(register, 'POST', {
+  email: `uninvited-${Date.now()}@codego.app`,
+  password,
+  inviteCode: 'not-a-valid-private-invite'
+});
+assert.equal(openRegistrationResult.status, 403);
+
 const registerResult = await call(register, 'POST', {
-  name: 'Smoke Tester',
   email,
-  password: 'demo123',
-  planId: 'pro'
+  password,
+  inviteCode: ownerInvite
 });
 assert.equal(registerResult.status, 201);
 assert.equal(registerResult.payload.user.email, email);
+assert.equal(registerResult.payload.user.name, 'Caren van Wyk');
+assert.equal(registerResult.payload.user.accessRole, 'admin');
 assert.ok(registerResult.headers['set-cookie']);
 
-const loginResult = await call(login, 'POST', { email, password: 'demo123' });
+const duplicateInviteResult = await call(register, 'POST', {
+  email: `second-owner-${Date.now()}@codego.app`,
+  password,
+  inviteCode: ownerInvite
+});
+assert.equal(duplicateInviteResult.status, 409);
+
+const unknownLoginResult = await call(login, 'POST', {
+  email: `unknown-${Date.now()}@codego.app`,
+  password
+});
+assert.equal(unknownLoginResult.status, 401);
+
+const loginResult = await call(login, 'POST', { email, password });
 assert.equal(loginResult.status, 200);
 assert.equal(loginResult.payload.user.email, email);
 const cookie = loginResult.headers['set-cookie'];

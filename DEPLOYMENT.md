@@ -9,6 +9,8 @@ DATABASE_URL=...
 APP_JWT_SECRET=...
 APP_ENCRYPTION_KEY=...
 APP_BASE_URL=https://code-on-the-go-eight.vercel.app
+PRIVATE_CAREN_INVITE_HASH=...
+PRIVATE_RUAN_INVITE_HASH=...
 ALLOW_TEST_AI=false
 ALLOW_TEST_PAYMENTS=true
 ```
@@ -16,6 +18,24 @@ ALLOW_TEST_PAYMENTS=true
 `DATABASE_URL` can be a Vercel Postgres, Neon, Supabase, or other Postgres connection string. If Vercel creates `POSTGRES_URL` instead, the app will use that automatically.
 
 `APP_JWT_SECRET` signs login cookies. `APP_ENCRYPTION_KEY` encrypts each user's saved OpenAI API key. Keep both stable after launch or users will be signed out and saved API keys cannot be decrypted.
+
+## Private two-person access
+
+The application is invitation-only. There are exactly two one-time administrator slots:
+
+- Caren van Wyk
+- Ruan Thomas
+
+The invitation secrets are not stored in plaintext. Each slot is claimed once in the database, public registration is rejected, and accounts without an approved slot cannot sign in or call protected APIs.
+
+Both invitation hashes are required in Vercel:
+
+```txt
+PRIVATE_CAREN_INVITE_HASH=...
+PRIVATE_RUAN_INVITE_HASH=...
+```
+
+Use a bcrypt hash, never a plaintext invitation code, for these variables. No fallback credential material is stored in the repository. The original invitation codes must be delivered privately to their intended people. Rotating a hash after its slot has already been claimed does not remove the activated account.
 
 ## Optional AI Variables
 

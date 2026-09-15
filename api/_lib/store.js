@@ -2,12 +2,11 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import pg from 'pg';
-import bcrypt from 'bcryptjs';
 import { encryptSecret, decryptSecret } from './secrets.js';
 import { defaultUserSettings, createInitialWorkspace } from './workspaceDefaults.js';
 
 const { Pool } = pg;
-const dbPath = process.env.LOCAL_DB_PATH || path.join(process.cwd(), '.data', 'codego-backend.json');
+const defaultDbPath = path.join(process.cwd(), '.data', 'codego-backend.json');
 
 let pool;
 let schemaReady = false;
@@ -18,6 +17,10 @@ function createId(prefix) {
 
 function now() {
   return new Date().toISOString();
+}
+
+function getLocalDbPath() {
+  return process.env.LOCAL_DB_PATH || defaultDbPath;
 }
 
 function getDatabaseUrl() {
@@ -97,9 +100,17 @@ async function ensurePostgresSchema() {
       plan_id TEXT NOT NULL DEFAULT 'starter',
       payment_provider TEXT,
       subscription_status TEXT NOT NULL DEFAULT 'inactive',
+      access_role TEXT,
+      access_slot TEXT,
       settings JSONB NOT NULL DEFAULT '{}'::jsonb,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS access_role TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS access_slot TEXT;
+    CREATE UNIQUE INDEX IF NOT EXISTS users_access_slot_unique
+      ON users(access_slot)
+      WHERE access_slot IS NOT NULL;
 
     CREATE TABLE IF NOT EXISTS workspaces (
       user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -135,71 +146,19 @@ async function ensurePostgresSchema() {
     );
   `);
 
-  const demo = await client.query('SELECT id FROM users WHERE email = $1', ['demo@codego.app']);
-  if (demo.rowCount === 0) {
-    const createdAt = now();
-    const passwordHash = await bcrypt.hash('demo123', 12);
-    await client.query(
-      `INSERT INTO users (id, name, email, password_hash, plan_id, payment_provider, subscription_status, settings, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-      [
-        'user-demo',
-        'Demo Builder',
-        'demo@codego.app',
-        passwordHash,
-        'pro',
-        'Stripe',
-        'active',
-        JSON.stringify(defaultUserSettings),
-        createdAt
-      ]
-    );
-    await client.query(
-      'INSERT INTO workspaces (user_id, data, updated_at) VALUES ($1, $2, $3)',
-      ['user-demo', JSON.stringify(createInitialWorkspace()), createdAt]
-    );
-    await client.query(
-      'INSERT INTO activity (id, user_id, type, message, created_at) VALUES ($1, $2, $3, $4, $5)',
-      ['activity-demo', 'user-demo', 'signup', 'Demo Builder signed up for Pro with Stripe checkout.', createdAt]
-    );
-  }
 }
 
 async function loadFileState() {
   try {
-    const raw = await fs.readFile(dbPath, 'utf8');
+    const raw = await fs.readFile(getLocalDbPath(), 'utf8');
     return JSON.parse(raw);
   } catch {
-    const createdAt = now();
-    const passwordHash = await bcrypt.hash('demo123', 12);
     const initial = {
-      users: [
-        {
-          id: 'user-demo',
-          name: 'Demo Builder',
-          email: 'demo@codego.app',
-          passwordHash,
-          planId: 'pro',
-          paymentProvider: 'Stripe',
-          subscriptionStatus: 'active',
-          settings: defaultUserSettings,
-          createdAt
-        }
-      ],
-      workspaces: {
-        'user-demo': createInitialWorkspace()
-      },
+      users: [],
+      workspaces: {},
       payments: [],
       secrets: {},
-      activity: [
-        {
-          id: 'activity-demo',
-          userId: 'user-demo',
-          type: 'signup',
-          message: 'Demo Builder signed up for Pro with Stripe checkout.',
-          createdAt
-        }
-      ]
+      activity: []
     };
     await saveFileState(initial);
     return initial;
@@ -207,6 +166,7 @@ async function loadFileState() {
 }
 
 async function saveFileState(state) {
+  const dbPath = getLocalDbPath();
   await fs.mkdir(path.dirname(dbPath), { recursive: true });
   await fs.writeFile(dbPath, JSON.stringify(state, null, 2));
 }
@@ -224,6 +184,8 @@ function mapPgUser(row) {
     planId: row.plan_id,
     paymentProvider: row.payment_provider,
     subscriptionStatus: row.subscription_status,
+    accessRole: row.access_role,
+    accessSlot: row.access_slot,
     settings: {
       ...defaultUserSettings,
       ...(row.settings ?? {})
@@ -270,7 +232,18 @@ function createPostgresStore(db) {
       const result = await db.query('SELECT * FROM users WHERE id = $1', [id]);
       return mapPgUser(result.rows[0]);
     },
-    async createUser({ name, email, passwordHash, planId = 'starter' }) {
+    async findUserByAccessSlot(accessSlot) {
+      const result = await db.query('SELECT * FROM users WHERE access_slot = $1', [accessSlot]);
+      return mapPgUser(result.rows[0]);
+    },
+    async createUser({
+      name,
+      email,
+      passwordHash,
+      planId = 'starter',
+      accessRole = null,
+      accessSlot = null
+    }) {
       const user = {
         id: createId('user'),
         name,
@@ -278,13 +251,16 @@ function createPostgresStore(db) {
         passwordHash,
         planId,
         paymentProvider: null,
-        subscriptionStatus: planId === 'starter' ? 'active' : 'pending',
+        subscriptionStatus: accessRole ? 'private' : planId === 'starter' ? 'active' : 'pending',
+        accessRole,
+        accessSlot,
         settings: defaultUserSettings,
         createdAt: now()
       };
       await db.query(
-        `INSERT INTO users (id, name, email, password_hash, plan_id, subscription_status, settings, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        `INSERT INTO users
+          (id, name, email, password_hash, plan_id, subscription_status, access_role, access_slot, settings, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
         [
           user.id,
           user.name,
@@ -292,6 +268,8 @@ function createPostgresStore(db) {
           user.passwordHash,
           user.planId,
           user.subscriptionStatus,
+          user.accessRole,
+          user.accessSlot,
           JSON.stringify(user.settings),
           user.createdAt
         ]
@@ -315,7 +293,8 @@ function createPostgresStore(db) {
       };
       await db.query(
         `UPDATE users
-         SET name = $2, plan_id = $3, payment_provider = $4, subscription_status = $5, settings = $6
+         SET name = $2, plan_id = $3, payment_provider = $4, subscription_status = $5,
+             settings = $6, access_role = $7, access_slot = $8
          WHERE id = $1`,
         [
           id,
@@ -323,7 +302,9 @@ function createPostgresStore(db) {
           next.planId,
           next.paymentProvider,
           next.subscriptionStatus,
-          JSON.stringify(next.settings)
+          JSON.stringify(next.settings),
+          next.accessRole ?? null,
+          next.accessSlot ?? null
         ]
       );
       return next;
@@ -442,8 +423,28 @@ function createFileStore() {
       const state = await loadFileState();
       return mapFileUser(state.users.find((user) => user.id === id));
     },
-    async createUser({ name, email, passwordHash, planId = 'starter' }) {
+    async findUserByAccessSlot(accessSlot) {
       const state = await loadFileState();
+      return mapFileUser(state.users.find((user) => user.accessSlot === accessSlot));
+    },
+    async createUser({
+      name,
+      email,
+      passwordHash,
+      planId = 'starter',
+      accessRole = null,
+      accessSlot = null
+    }) {
+      const state = await loadFileState();
+      if (
+        state.users.some(
+          (user) => user.email === email || (accessSlot && user.accessSlot === accessSlot)
+        )
+      ) {
+        const error = new Error('Email or access slot already exists.');
+        error.code = '23505';
+        throw error;
+      }
       const user = {
         id: createId('user'),
         name,
@@ -451,7 +452,9 @@ function createFileStore() {
         passwordHash,
         planId,
         paymentProvider: null,
-        subscriptionStatus: planId === 'starter' ? 'active' : 'pending',
+        subscriptionStatus: accessRole ? 'private' : planId === 'starter' ? 'active' : 'pending',
+        accessRole,
+        accessSlot,
         settings: defaultUserSettings,
         createdAt: now()
       };

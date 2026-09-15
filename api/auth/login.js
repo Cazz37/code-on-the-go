@@ -1,5 +1,6 @@
 import { createSessionCookie, publicUser, verifyPassword } from '../_lib/auth.js';
 import { sendError, sendJson, readJson, requireMethod } from '../_lib/http.js';
+import { hasPrivateAccess } from '../_lib/privateAccess.js';
 import { getStore } from '../_lib/store.js';
 
 export default async function handler(req, res) {
@@ -13,6 +14,11 @@ export default async function handler(req, res) {
 
     if (!user || !(await verifyPassword(password, user.passwordHash))) {
       sendError(res, 401, 'Invalid email or password.');
+      return;
+    }
+
+    if (!hasPrivateAccess(user)) {
+      sendError(res, 403, 'This account is not approved for this private workspace.');
       return;
     }
 
@@ -33,7 +39,7 @@ export default async function handler(req, res) {
       { 'Set-Cookie': createSessionCookie(user) }
     );
   } catch (error) {
-    if (error.code === 'MISSING_DATABASE') {
+    if (error.code === 'MISSING_DATABASE' || error.code === 'MISSING_JWT_SECRET') {
       sendError(res, 503, error.message);
       return;
     }

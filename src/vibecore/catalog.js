@@ -1,4 +1,4 @@
-export const VIBECORE_SCHEMA_VERSION = '0.1.0';
+export const VIBECORE_SCHEMA_VERSION = '0.2.0';
 
 export const componentCatalog = [
   {
@@ -48,6 +48,24 @@ export const componentCatalog = [
     label: 'Navigation',
     description: 'Phone-first navigation with large touch targets.',
     keywords: ['navigation', 'menu', 'tabs', 'bottom bar', 'sidebar']
+  },
+  {
+    id: 'media',
+    label: 'Images & media',
+    description: 'Reference imagery, illustrations, and visual backdrops.',
+    keywords: ['image', 'photo', 'picture', 'background', 'illustration', 'media']
+  },
+  {
+    id: 'status',
+    label: 'Status indicators',
+    description: 'Online states, badges, alerts, and operational summaries.',
+    keywords: ['status', 'online', 'offline', 'badge', 'alert', 'operational']
+  },
+  {
+    id: 'footer',
+    label: 'Footer',
+    description: 'Product details, version information, and secondary links.',
+    keywords: ['footer', 'version', 'copyright', 'credits']
   }
 ];
 
@@ -86,6 +104,13 @@ export const appRecipes = [
     keywords: ['portfolio', 'profile', 'showcase', 'resume', 'gallery'],
     components: ['header', 'hero', 'cards', 'form', 'navigation'],
     action: 'View work'
+  },
+  {
+    id: 'auth',
+    label: 'Secure sign-in',
+    keywords: ['login', 'log in', 'sign in', 'authentication', 'password', 'pin', 'secure access', 'crew'],
+    components: ['header', 'media', 'form', 'stats', 'status', 'footer'],
+    action: 'Sign in'
   }
 ];
 
@@ -122,6 +147,19 @@ export const navigationOptions = [
   { id: 'bottom', label: 'Bottom tabs' },
   { id: 'top', label: 'Top links' },
   { id: 'none', label: 'Single page' }
+];
+
+export const referenceModes = [
+  {
+    id: 'exact',
+    label: 'Exact pixels',
+    description: 'Preserve the complete image and align interactions over it.'
+  },
+  {
+    id: 'inspired',
+    label: 'Editable layout',
+    description: 'Use its colours while generating reusable components.'
+  }
 ];
 
 export function getRecipe(recipeId) {

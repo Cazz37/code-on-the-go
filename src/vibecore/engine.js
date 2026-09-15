@@ -55,6 +55,13 @@ const recipeContent = {
     cards: ['Product design', 'Mobile build', 'Brand system'],
     stats: [['12', 'projects'], ['8', 'partners'], ['5 yrs', 'experience']],
     table: [['Product design', 'Published'], ['Mobile build', 'Case study'], ['Brand system', 'Published']]
+  },
+  auth: {
+    kicker: 'Secure access',
+    summary: 'A focused sign-in experience with clear identity, password, device, and system-status controls.',
+    cards: ['Active users', 'Service status', 'Protected access'],
+    stats: [['12', 'active users'], ['Ready', 'service status'], ['Secure', 'access']],
+    table: [['Authentication', 'Online'], ['Offline sync', 'Ready'], ['Session security', 'Protected']]
   }
 };
 
@@ -204,6 +211,132 @@ function limitSummary(brief, fallback) {
   return value.length > 180 ? value.slice(0, 177).trimEnd() + '...' : value;
 }
 
+function clampNumber(value, minimum, maximum, fallback = minimum) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(minimum, Math.min(maximum, number)) : fallback;
+}
+
+function normalizeGuideList(values) {
+  if (!Array.isArray(values)) return [];
+  return [...new Set(values
+    .map((value) => Number(clampNumber(value, 0, 1, 0).toFixed(4)))
+    .filter((value) => value > 0.01 && value < 0.99))]
+    .sort((left, right) => left - right)
+    .slice(0, 8);
+}
+
+function normalizeRect(rect) {
+  if (!rect || typeof rect !== 'object') return null;
+  const x = clampNumber(rect.x, 0, 1, 0);
+  const y = clampNumber(rect.y, 0, 1, 0);
+  const width = clampNumber(rect.width, 0.01, 1 - x, 0.1);
+  const height = clampNumber(rect.height, 0.01, 1 - y, 0.05);
+  return {
+    x: Number(x.toFixed(4)),
+    y: Number(y.toFixed(4)),
+    width: Number(width.toFixed(4)),
+    height: Number(height.toFixed(4)),
+    confidence: Number(clampNumber(rect.confidence, 0, 1, 0.5).toFixed(2))
+  };
+}
+
+function normalizeReferenceDataUrl(value) {
+  const dataUrl = String(value ?? '');
+  return /^data:image\/(?:png|jpeg|webp);base64,[a-z0-9+/=]+$/i.test(dataUrl)
+    ? dataUrl
+    : '';
+}
+
+function moveRect(rect, heightMultiplier, yOffsetMultiplier) {
+  const height = clampNumber(rect.height * heightMultiplier, 0.02, 0.14, rect.height);
+  return normalizeRect({
+    x: rect.x,
+    y: Math.max(0.01, rect.y - (rect.height * yOffsetMultiplier)),
+    width: rect.width,
+    height,
+    confidence: rect.confidence * 0.82
+  });
+}
+
+function inferReferenceInteractions(brief, recipeId, primaryAction) {
+  if (!primaryAction) return [];
+  const normalizedBrief = brief.toLowerCase();
+  const isAuthentication = recipeId === 'auth' || [
+    'login',
+    'log in',
+    'sign in',
+    'password',
+    'pin',
+    'authentication'
+  ].some((signal) => normalizedBrief.includes(signal));
+
+  if (!isAuthentication) {
+    return [{ id: 'primary-action', kind: 'button', label: 'Primary action', rect: primaryAction }];
+  }
+
+  return [
+    {
+      id: 'identity',
+      kind: 'email',
+      label: 'Email or username',
+      rect: moveRect(primaryAction, 1.15, 4.35)
+    },
+    {
+      id: 'password',
+      kind: 'password',
+      label: 'Password or PIN',
+      rect: moveRect(primaryAction, 1.15, 2.35)
+    },
+    {
+      id: 'primary-action',
+      kind: 'submit',
+      label: 'Sign in',
+      rect: primaryAction
+    }
+  ].filter((interaction) => interaction.rect);
+}
+
+function createReferenceMetadata(reference, brief, recipeId) {
+  if (!reference) return null;
+  const width = Math.max(1, Math.round(Number(reference.width) || 1));
+  const height = Math.max(1, Math.round(Number(reference.height) || 1));
+  const horizontalGuides = normalizeGuideList(reference.analysis?.layout?.horizontalGuides);
+  const verticalGuides = normalizeGuideList(reference.analysis?.layout?.verticalGuides);
+  const primaryAction = normalizeRect(reference.analysis?.primaryAction);
+  const dataUrl = normalizeReferenceDataUrl(reference.dataUrl);
+  const mode = reference.mode === 'inspired' ? 'inspired' : 'exact';
+
+  return {
+    name: cleanText(reference.name, 'Reference image'),
+    width,
+    height,
+    mode,
+    palette: (reference.palette ?? []).map(normalizeHex).filter(Boolean).slice(0, 8),
+    asset: {
+      embedded: Boolean(dataUrl),
+      mimeType: cleanText(reference.mimeType, 'image/jpeg'),
+      fingerprint: cleanText(reference.fingerprint, 'unavailable'),
+      originalPreserved: reference.originalPreserved !== false,
+      bytes: Math.max(0, Math.round(Number(reference.embeddedBytes) || 0))
+    },
+    layout: {
+      aspectRatio: Number((width / height).toFixed(4)),
+      orientation: width === height ? 'square' : width > height ? 'landscape' : 'portrait',
+      horizontalGuides,
+      verticalGuides,
+      measuredRegions: Math.max(
+        1,
+        Math.round(Number(reference.analysis?.layout?.measuredRegions)) ||
+          ((horizontalGuides.length + 1) * (verticalGuides.length + 1))
+      )
+    },
+    primaryAction,
+    interactions: mode === 'exact'
+      ? inferReferenceInteractions(brief, recipeId, primaryAction)
+      : []
+  };
+}
+
 export function inferBlueprint(input = {}) {
   const brief = cleanText(input.brief, 'Create a polished, phone-first web experience.');
   const recipe = findRecipe(brief, input.recipe);
@@ -218,6 +351,7 @@ export function inferBlueprint(input = {}) {
   const target = targetId === 'react'
     ? { id: 'react', label: 'React + Vite PWA', language: 'JavaScript', stack: 'React + Vite' }
     : { id: 'static', label: 'HTML + CSS + JavaScript', language: 'HTML', stack: 'Web standards' };
+  const reference = createReferenceMetadata(input.reference, brief, recipe.id);
 
   return {
     schemaVersion: VIBECORE_SCHEMA_VERSION,
@@ -248,14 +382,7 @@ export function inferBlueprint(input = {}) {
       stats: content.stats,
       table: content.table
     },
-    reference: input.reference
-      ? {
-          name: cleanText(input.reference.name, 'Reference image'),
-          width: Number(input.reference.width) || null,
-          height: Number(input.reference.height) || null,
-          palette: (input.reference.palette ?? []).map(normalizeHex).filter(Boolean)
-        }
-      : null
+    reference
   };
 }
 
@@ -304,11 +431,42 @@ export function validateBlueprint(blueprint) {
   if (blueprint.reference) {
     diagnostics.push({
       level: blueprint.reference.palette.length ? 'pass' : 'warning',
-      code: 'REFERENCE',
+      code: 'REFERENCE_COLOURS',
       message: blueprint.reference.palette.length
-        ? 'Reference-image palette is attached to the blueprint.'
-        : 'Reference image attached without applying its palette.'
+        ? 'Reference-image colours are mapped to the project tokens.'
+        : 'Reference image attached without applying its colours.'
     });
+    diagnostics.push({
+      level: blueprint.reference.mode !== 'exact' || blueprint.reference.asset.embedded
+        ? 'pass'
+        : 'error',
+      code: 'REFERENCE_FIDELITY',
+      message: blueprint.reference.mode === 'exact'
+        ? blueprint.reference.asset.originalPreserved
+          ? 'The complete original image is embedded as the exact visual source.'
+          : 'The complete reference is embedded at its measured aspect ratio after storage optimisation.'
+        : 'The reference is used as an editable style and colour guide.'
+    });
+    diagnostics.push({
+      level: 'pass',
+      code: 'REFERENCE_GEOMETRY',
+      message:
+        blueprint.reference.layout.measuredRegions +
+        ' layout regions and the ' +
+        blueprint.reference.width +
+        ' × ' +
+        blueprint.reference.height +
+        ' aspect ratio are recorded.'
+    });
+    if (blueprint.reference.mode === 'exact') {
+      diagnostics.push({
+        level: blueprint.reference.interactions.length ? 'pass' : 'warning',
+        code: 'REFERENCE_INTERACTIONS',
+        message: blueprint.reference.interactions.length
+          ? blueprint.reference.interactions.length + ' functional hit areas are aligned to the reference.'
+          : 'No reliable action area was detected; the visual match remains exact but needs manual interaction mapping.'
+      });
+    }
   }
   return diagnostics;
 }
@@ -433,7 +591,63 @@ function renderBottomNavigation(blueprint) {
   ].join('');
 }
 
-function renderBody(blueprint) {
+function percent(value) {
+  return Number((value * 100).toFixed(3)) + '%';
+}
+
+function referenceRectStyle(rect) {
+  return [
+    'left:' + percent(rect.x),
+    'top:' + percent(rect.y),
+    'width:' + percent(rect.width),
+    'height:' + percent(rect.height)
+  ].join(';');
+}
+
+function renderExactReferenceBody(blueprint, referenceDataUrl) {
+  const interactions = blueprint.reference?.interactions ?? [];
+  const inputInteractions = interactions.filter((interaction) =>
+    ['email', 'password', 'text'].includes(interaction.kind)
+  );
+  const actionInteraction = interactions.find((interaction) =>
+    ['submit', 'button'].includes(interaction.kind)
+  );
+  const form = interactions.length
+    ? [
+        '<form class="vc-reference-interactions" data-vc-reference-form>',
+        ...inputInteractions.map((interaction) => [
+          '<label class="vc-visually-hidden" for="vc-' + escapeHtml(interaction.id) + '">' + escapeHtml(interaction.label) + '</label>',
+          '<input class="vc-reference-field" id="vc-' + escapeHtml(interaction.id) + '"',
+          ' data-vc-reference-input type="' + escapeHtml(interaction.kind === 'password' ? 'password' : interaction.kind) + '"',
+          ' name="' + escapeHtml(interaction.id) + '" aria-label="' + escapeHtml(interaction.label) + '"',
+          ' autocomplete="' + escapeHtml(interaction.kind === 'password' ? 'current-password' : 'username') + '"',
+          ' style="' + referenceRectStyle(interaction.rect) + '" required />'
+        ].join('')),
+        actionInteraction
+          ? '<button class="vc-reference-action" type="submit" aria-label="' +
+            escapeHtml(actionInteraction.label) + '" style="' +
+            referenceRectStyle(actionInteraction.rect) + '"><span class="vc-visually-hidden">' +
+            escapeHtml(actionInteraction.label) + '</span></button>'
+          : '',
+        '<output class="vc-visually-hidden" data-vc-reference-message aria-live="polite"></output>',
+        '</form>'
+      ].join('')
+    : '';
+
+  return [
+    '<main class="vc-exact-reference" data-vc-exact-reference>',
+    '<img class="vc-exact-reference-image" src="' + escapeHtml(referenceDataUrl) + '" alt="' +
+      escapeHtml(blueprint.name + ' complete reference interface') + '" draggable="false" />',
+    form,
+    '</main>'
+  ].join('');
+}
+
+function renderBody(blueprint, referenceDataUrl = '') {
+  if (blueprint.reference?.mode === 'exact' && referenceDataUrl) {
+    return renderExactReferenceBody(blueprint, referenceDataUrl);
+  }
+
   return [
     '<main class="vc-generated-app">',
     renderHeader(blueprint),
@@ -450,7 +664,43 @@ function renderBody(blueprint) {
   ].join('');
 }
 
+function createExactReferenceStyles(blueprint) {
+  const colours = blueprint.tokens.colours;
+  const width = blueprint.reference.width;
+  const height = blueprint.reference.height;
+  return [
+    ':root {',
+    '  color-scheme: light;',
+    '  font-family: ' + blueprint.tokens.font + ';',
+    '  --vc-primary: ' + colours.primary + ';',
+    '  --vc-reference-width: ' + width + 'px;',
+    '  --vc-reference-ratio: ' + width + ' / ' + height + ';',
+    '}',
+    '* { box-sizing: border-box; }',
+    'html { min-width: 320px; min-height: 100%; background: #090b0f; }',
+    'body { min-width: 320px; min-height: 100vh; margin: 0; overflow-x: hidden; background: #090b0f; }',
+    '#root { width: 100%; }',
+    'button, input { font: inherit; -webkit-tap-highlight-color: transparent; }',
+    '.vc-exact-reference { position: relative; width: min(100%, var(--vc-reference-width)); aspect-ratio: var(--vc-reference-ratio); margin: 0 auto; overflow: hidden; background: ' + colours.background + '; isolation: isolate; }',
+    '.vc-exact-reference-image { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; display: block; object-fit: contain; user-select: none; -webkit-user-drag: none; }',
+    '.vc-reference-interactions { position: absolute; inset: 0; z-index: 1; margin: 0; pointer-events: none; }',
+    '.vc-reference-field, .vc-reference-action { position: absolute; display: block; margin: 0; pointer-events: auto; }',
+    '.vc-reference-field { min-width: 0; padding: 0 3.5%; color: transparent; caret-color: var(--vc-primary); border: 0; border-radius: clamp(4px, 1vw, 14px); outline: 0; background: transparent; font-size: clamp(10px, 1.25vw, 18px); }',
+    '.vc-reference-field:focus, .vc-reference-field.has-value { color: #1f2937; outline: 2px solid color-mix(in srgb, var(--vc-primary) 74%, white); outline-offset: -2px; background: rgba(255, 255, 255, .94); }',
+    '.vc-reference-action { padding: 0; color: transparent; border: 0; border-radius: clamp(4px, 1vw, 14px); outline: 0; background: transparent; cursor: pointer; }',
+    '.vc-reference-action:focus-visible { outline: 3px solid color-mix(in srgb, var(--vc-primary) 58%, white); outline-offset: 2px; }',
+    '.vc-visually-hidden { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; margin: -1px !important; overflow: hidden !important; clip: rect(0, 0, 0, 0) !important; white-space: nowrap !important; border: 0 !important; }',
+    '@media (min-width: ' + (width + 1) + 'px) {',
+    '  body { display: grid; justify-items: center; }',
+    '}'
+  ].join('\n');
+}
+
 function createStyles(blueprint) {
+  if (blueprint.reference?.mode === 'exact' && blueprint.reference.asset.embedded) {
+    return createExactReferenceStyles(blueprint);
+  }
+
   const colours = blueprint.tokens.colours;
   const radius = blueprint.tokens.radius;
   return [
@@ -548,11 +798,21 @@ function createInteractionScript() {
     '  event.preventDefault();',
     '  const message = event.currentTarget.querySelector("[data-vc-message]");',
     '  if (message) message.textContent = "Saved locally — connect your backend when you are ready.";',
+    '});',
+    'document.querySelectorAll("[data-vc-reference-input]").forEach((input) => {',
+    '  const updateValueState = () => input.classList.toggle("has-value", Boolean(input.value));',
+    '  input.addEventListener("input", updateValueState);',
+    '  input.addEventListener("change", updateValueState);',
+    '});',
+    'document.querySelector("[data-vc-reference-form]")?.addEventListener("submit", (event) => {',
+    '  event.preventDefault();',
+    '  const message = event.currentTarget.querySelector("[data-vc-reference-message]");',
+    '  if (message) message.textContent = "Reference interaction submitted successfully.";',
     '});'
   ].join('\n');
 }
 
-export function createPreviewDocument(blueprint) {
+export function createPreviewDocument(blueprint, referenceDataUrl = '') {
   return [
     '<!doctype html>',
     '<html lang="en">',
@@ -564,14 +824,87 @@ export function createPreviewDocument(blueprint) {
     '<style>' + createStyles(blueprint) + '</style>',
     '</head>',
     '<body>',
-    renderBody(blueprint),
+    renderBody(blueprint, referenceDataUrl),
     '<script>' + createInteractionScript().replace(/<\/script/gi, '<\\/script') + '</script>',
     '</body>',
     '</html>'
   ].join('\n');
 }
 
+function createExactReactApp(blueprint) {
+  const interactions = blueprint.reference?.interactions ?? [];
+  return [
+    "import { useState } from 'react';",
+    "import { referenceImage } from './reference-image.js';",
+    "import './styles.css';",
+    '',
+    'const interactions = ' + JSON.stringify(interactions, null, 2) + ';',
+    'const fields = interactions.filter((interaction) => ["email", "password", "text"].includes(interaction.kind));',
+    'const action = interactions.find((interaction) => ["submit", "button"].includes(interaction.kind));',
+    'const position = (rect) => ({',
+    '  left: `${rect.x * 100}%`,',
+    '  top: `${rect.y * 100}%`,',
+    '  width: `${rect.width * 100}%`,',
+    '  height: `${rect.height * 100}%`',
+    '});',
+    '',
+    'export default function App() {',
+    '  const [values, setValues] = useState({});',
+    "  const [message, setMessage] = useState('');",
+    '  const handleSubmit = (event) => {',
+    '    event.preventDefault();',
+    "    setMessage('Reference interaction submitted successfully.');",
+    '  };',
+    '',
+    '  return (',
+    '    <main className="vc-exact-reference" data-vc-exact-reference>',
+    '      <img',
+    '        className="vc-exact-reference-image"',
+    '        src={referenceImage}',
+    '        alt="' + escapeHtml(blueprint.name) + ' complete reference interface"',
+    '        draggable="false"',
+    '      />',
+    '      {interactions.length > 0 && (',
+    '        <form className="vc-reference-interactions" onSubmit={handleSubmit}>',
+    '          {fields.map((interaction) => (',
+    '            <input',
+    '              className={`vc-reference-field ${values[interaction.id] ? "has-value" : ""}`}',
+    '              key={interaction.id}',
+    '              type={interaction.kind === "password" ? "password" : interaction.kind}',
+    '              name={interaction.id}',
+    '              aria-label={interaction.label}',
+    '              autoComplete={interaction.kind === "password" ? "current-password" : "username"}',
+    '              value={values[interaction.id] ?? ""}',
+    '              onChange={(event) => setValues((current) => ({ ...current, [interaction.id]: event.target.value }))}',
+    '              style={position(interaction.rect)}',
+    '              required',
+    '            />',
+    '          ))}',
+    '          {action && (',
+    '            <button',
+    '              className="vc-reference-action"',
+    '              type="submit"',
+    '              aria-label={action.label}',
+    '              style={position(action.rect)}',
+    '            >',
+    '              <span className="vc-visually-hidden">{action.label}</span>',
+    '            </button>',
+    '          )}',
+    '          <output className="vc-visually-hidden" aria-live="polite">{message}</output>',
+    '        </form>',
+    '      )}',
+    '    </main>',
+    '  );',
+    '}',
+    ''
+  ].join('\n');
+}
+
 function createReactApp(blueprint) {
+  if (blueprint.reference?.mode === 'exact' && blueprint.reference.asset.embedded) {
+    return createExactReactApp(blueprint);
+  }
+
   const project = {
     name: blueprint.name,
     recipe: blueprint.recipe.label,
@@ -786,6 +1119,13 @@ function createIcon(blueprint) {
 }
 
 function createReadme(blueprint, diagnostics) {
+  const referenceNotes = blueprint.reference
+    ? [
+        '- Reference mode: ' + (blueprint.reference.mode === 'exact' ? 'Exact pixels' : 'Editable layout'),
+        '- Reference size: ' + blueprint.reference.width + ' × ' + blueprint.reference.height + 'px',
+        '- Interaction areas: ' + blueprint.reference.interactions.length
+      ]
+    : [];
   return [
     '# ' + blueprint.name,
     '',
@@ -797,6 +1137,7 @@ function createReadme(blueprint, diagnostics) {
     '- Target: ' + blueprint.target.label,
     '- Components: ' + blueprint.components.join(', '),
     '- Schema: ' + blueprint.schemaVersion,
+    ...referenceNotes,
     '',
     '## Rule check',
     '',
@@ -817,7 +1158,7 @@ function file(path, language, library, content) {
   };
 }
 
-function createReactFiles(blueprint, diagnostics, previewHtml) {
+function createReactFiles(blueprint, diagnostics, previewHtml, referenceDataUrl = '') {
   const packageJson = JSON.stringify({
     name: blueprint.id,
     private: true,
@@ -835,7 +1176,7 @@ function createReactFiles(blueprint, diagnostics, previewHtml) {
     }
   }, null, 2);
 
-  return [
+  const files = [
     file('index.html', 'html', 'PWA Page', createReactIndex(blueprint)),
     file('src/App.jsx', 'javascript', 'React + Vite', createReactApp(blueprint)),
     file('src/styles.css', 'css', 'Plain CSS', createStyles(blueprint)),
@@ -847,6 +1188,19 @@ function createReactFiles(blueprint, diagnostics, previewHtml) {
     file('vibecore.blueprint.json', 'json', 'Config', JSON.stringify(blueprint, null, 2)),
     file('README.md', 'markdown', 'Documentation', createReadme(blueprint, diagnostics))
   ];
+  if (blueprint.reference?.mode === 'exact' && referenceDataUrl) {
+    files.splice(
+      2,
+      0,
+      file(
+        'src/reference-image.js',
+        'javascript',
+        'Embedded image asset',
+        'export const referenceImage = ' + JSON.stringify(referenceDataUrl) + ';\n'
+      )
+    );
+  }
+  return files;
 }
 
 function createStaticFiles(blueprint, diagnostics, previewHtml) {
@@ -878,9 +1232,10 @@ function createStaticFiles(blueprint, diagnostics, previewHtml) {
 export function compileBlueprint(input = {}) {
   const blueprint = inferBlueprint(input);
   const diagnostics = validateBlueprint(blueprint);
-  const previewHtml = createPreviewDocument(blueprint);
+  const referenceDataUrl = normalizeReferenceDataUrl(input.reference?.dataUrl);
+  const previewHtml = createPreviewDocument(blueprint, referenceDataUrl);
   const files = blueprint.target.id === 'react'
-    ? createReactFiles(blueprint, diagnostics, previewHtml)
+    ? createReactFiles(blueprint, diagnostics, previewHtml, referenceDataUrl)
     : createStaticFiles(blueprint, diagnostics, previewHtml);
   const primaryFile = blueprint.target.id === 'react' ? 'src/App.jsx' : 'index.html';
   const previewFile = blueprint.target.id === 'react' ? 'preview.html' : 'index.html';
@@ -898,6 +1253,7 @@ export function compileBlueprint(input = {}) {
     summary: {
       recipe: blueprint.recipe.label,
       target: blueprint.target.label,
+      fidelity: blueprint.reference?.mode === 'exact' ? 'Exact pixels' : 'Rule layout',
       components: blueprint.components.length,
       passedRules: diagnostics.filter((item) => item.level === 'pass').length,
       totalRules: diagnostics.length

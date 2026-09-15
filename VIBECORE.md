@@ -31,14 +31,14 @@ Given the same inputs, the blueprint and generated file contents are identical. 
 
 ## Reference-image support
 
-The first image mapper works entirely in the browser. It:
+The v0.2 image mapper works entirely in the browser and offers two deliberate modes:
 
-- reads PNG, JPEG, and WebP files up to 5 MB;
-- samples and groups pixels to find a small dominant-colour palette;
-- can apply that palette to generated design tokens; and
-- provides an adjustable reference overlay above the live preview.
+- **Exact Pixels** preserves the complete attached PNG, JPEG, or WebP as the generated visual source. The output uses the measured source dimensions and aspect ratio, so imagery, logos, text, colour, spacing, and composition stay together instead of being replaced by a generic template.
+- **Editable Layout** extracts the reference palette and applies it to registered, reusable VibeCore components.
 
-It does not yet detect exact regions, fonts, spacing, or individual components. Those belong to the next deterministic image-mapper layer and are deliberately not described as pixel-perfect today.
+For both modes the mapper samples pixel data, identifies an accent-first palette, finds strong horizontal and vertical layout guides, records measured regions, and searches for a reliable primary action rectangle. On recognised sign-in references, exact mode aligns functional email/password/submit hit areas with that detected action. The untouched screenshot remains visible until a field is focused, preserving the reference appearance at rest.
+
+Images below the embedded storage threshold are retained byte-for-byte. Larger images are resized and encoded as a storage-safe WebP while keeping their complete composition and aspect ratio. Exact Pixels is therefore a literal image-backed visual match, not a claim that every pixel has been reverse-engineered into an independently editable DOM element. Additional semantic controls can be mapped in later component-specific passes without changing the fidelity layer.
 
 ## Extension contract
 

@@ -1,11 +1,23 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { parse, serialize } from 'cookie';
+import { hasPrivateAccess } from './privateAccess.js';
 
 const cookieName = 'codego_session';
 
 export function getJwtSecret() {
-  return process.env.APP_JWT_SECRET || process.env.JWT_SECRET || 'dev-only-code-on-the-go-secret';
+  const configuredSecret = process.env.APP_JWT_SECRET || process.env.JWT_SECRET;
+  if (configuredSecret) {
+    return configuredSecret;
+  }
+
+  if (process.env.VERCEL === '1' || process.env.NODE_ENV === 'production') {
+    const error = new Error('APP_JWT_SECRET is required for private production access.');
+    error.code = 'MISSING_JWT_SECRET';
+    throw error;
+  }
+
+  return 'dev-only-code-on-the-go-secret';
 }
 
 export async function hashPassword(password) {
@@ -23,12 +35,17 @@ export function createSessionCookie(user) {
       email: user.email
     },
     getJwtSecret(),
-    { expiresIn: '14d' }
+    {
+      expiresIn: '14d',
+      algorithm: 'HS256',
+      issuer: 'code-on-the-go',
+      audience: 'private-workspace'
+    }
   );
 
   return serialize(cookieName, token, {
     httpOnly: true,
-    sameSite: 'lax',
+    sameSite: 'strict',
     secure: process.env.NODE_ENV === 'production',
     path: '/',
     maxAge: 60 * 60 * 24 * 14
@@ -38,7 +55,7 @@ export function createSessionCookie(user) {
 export function clearSessionCookie() {
   return serialize(cookieName, '', {
     httpOnly: true,
-    sameSite: 'lax',
+    sameSite: 'strict',
     secure: process.env.NODE_ENV === 'production',
     path: '/',
     maxAge: 0
@@ -54,7 +71,11 @@ export function readSession(req) {
   }
 
   try {
-    return jwt.verify(token, getJwtSecret());
+    return jwt.verify(token, getJwtSecret(), {
+      algorithms: ['HS256'],
+      issuer: 'code-on-the-go',
+      audience: 'private-workspace'
+    });
   } catch {
     return null;
   }
@@ -66,7 +87,8 @@ export async function requireUser(req, store) {
     return null;
   }
 
-  return store.findUserById(session.sub);
+  const user = await store.findUserById(session.sub);
+  return hasPrivateAccess(user) ? user : null;
 }
 
 export function publicUser(user) {
@@ -81,6 +103,7 @@ export function publicUser(user) {
     planId: user.planId,
     paymentProvider: user.paymentProvider,
     subscriptionStatus: user.subscriptionStatus,
+    accessRole: user.accessRole,
     settings: user.settings,
     createdAt: user.createdAt,
     ...(typeof user.aiKeyConfigured === 'boolean'

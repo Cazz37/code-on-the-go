@@ -562,6 +562,46 @@ h1 {
   color: var(--violet);
 }
 
+.inline-activation {
+  display: grid;
+  gap: 11px;
+  padding: 12px;
+  border: 1px solid rgba(124, 58, 237, 0.2);
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(243, 232, 255, 0.72), rgba(219, 234, 254, 0.58));
+}
+
+.inline-activation > p {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  margin: 0;
+  color: #5b347e;
+  font-size: 0.8rem;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.inline-activation > p svg {
+  margin-top: 1px;
+  color: var(--violet);
+}
+
+.inline-activation-cancel {
+  justify-self: center;
+  padding: 2px 0;
+  color: var(--violet);
+  background: transparent;
+  font-size: 0.8rem;
+  font-weight: 850;
+}
+
+.inline-activation-cancel:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .form-options button,
 .auth-switcher button {
   padding: 0;

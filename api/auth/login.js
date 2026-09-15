@@ -18,7 +18,12 @@ export default async function handler(req, res) {
     }
 
     if (!hasPrivateAccess(user)) {
-      sendError(res, 403, 'This account is not approved for this private workspace.');
+      sendJson(res, 403, {
+        ok: false,
+        error: 'This existing account needs one-time private activation.',
+        code: 'PRIVATE_ACCESS_REQUIRED',
+        activationRequired: true
+      });
       return;
     }
 

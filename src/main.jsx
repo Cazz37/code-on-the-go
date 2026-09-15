@@ -244,6 +244,8 @@ async function apiRequest(path, options = {}) {
   if (!response.ok || payload.ok === false) {
     const error = new Error(payload.error || 'Request failed');
     error.status = response.status;
+    error.code = payload.code;
+    error.activationRequired = payload.activationRequired === true;
     throw error;
   }
 
@@ -1154,7 +1156,11 @@ function App() {
       enterApp();
       return { ok: true };
     } catch (error) {
-      return { ok: false, message: error.message };
+      return {
+        ok: false,
+        message: error.message,
+        activationRequired: error.activationRequired === true
+      };
     }
   };
 
@@ -1812,6 +1818,7 @@ function App() {
             <LoginScreen
               notice={sessionMessage}
               onLogin={handleLogin}
+              onActivate={handleRegister}
               onRegister={() => {
                 setSessionMessage('');
                 setActiveView('register');
@@ -2059,13 +2066,17 @@ function AccessLoadingScreen() {
   );
 }
 
-function LoginScreen({ onLogin, onRegister, notice = '' }) {
-  const [form, setForm] = React.useState({ email: '', password: '' });
+function LoginScreen({ onLogin, onActivate, onRegister, notice = '' }) {
+  const [form, setForm] = React.useState({ email: '', password: '', inviteCode: '' });
   const [error, setError] = React.useState('');
   const [busy, setBusy] = React.useState(false);
+  const [activationRequired, setActivationRequired] = React.useState(false);
 
   const updateField = (event) => {
     setError('');
+    if (event.target.name === 'email' && activationRequired) {
+      setActivationRequired(false);
+    }
     setForm((current) => ({ ...current, [event.target.name]: event.target.value }));
   };
 
@@ -2073,11 +2084,29 @@ function LoginScreen({ onLogin, onRegister, notice = '' }) {
     event.preventDefault();
     if (busy) return;
     setBusy(true);
-    const result = await onLogin(form);
+    const result = activationRequired
+      ? await onActivate({
+          inviteCode: form.inviteCode,
+          email: form.email,
+          password: form.password,
+          confirmPassword: form.password
+        })
+      : await onLogin(form);
     setBusy(false);
     if (!result.ok) {
-      setError(result.message);
+      if (result.activationRequired) {
+        setActivationRequired(true);
+        setError('Your email and password are correct. Enter your one-time invitation code below to finish activation.');
+      } else {
+        setError(result.message);
+      }
     }
+  };
+
+  const cancelActivation = () => {
+    setActivationRequired(false);
+    setError('');
+    setForm((current) => ({ ...current, inviteCode: '' }));
   };
 
   return (
@@ -2115,6 +2144,25 @@ function LoginScreen({ onLogin, onRegister, notice = '' }) {
           placeholder="Enter password"
           actionIcon={Eye}
         />
+        {activationRequired && (
+          <div className="inline-activation">
+            <p>
+              <ShieldCheck size={16} />
+              One last step: connect this existing account to its private admin invitation.
+            </p>
+            <InputField
+              icon={KeyRound}
+              label="One-time invitation code"
+              name="inviteCode"
+              type="text"
+              autoCapitalize="none"
+              autoComplete="off"
+              value={form.inviteCode}
+              onChange={updateField}
+              placeholder="COTG-…"
+            />
+          </div>
+        )}
         <div className="private-access-note">
           <LockKeyhole size={15} />
           <span>Your secure session stays signed in on this device for 14 days.</span>
@@ -2122,9 +2170,16 @@ function LoginScreen({ onLogin, onRegister, notice = '' }) {
         {notice && !error && <FormMessage message={notice} />}
         {error && <FormMessage message={error} />}
         <button className="primary-action" type="submit" disabled={busy}>
-          {busy ? 'Checking…' : 'Sign In'}
+          {busy
+            ? (activationRequired ? 'Activating…' : 'Checking…')
+            : (activationRequired ? 'Activate & Sign In' : 'Sign In')}
           <ArrowRight size={18} />
         </button>
+        {activationRequired && (
+          <button className="inline-activation-cancel" type="button" onClick={cancelActivation} disabled={busy}>
+            Back to normal sign in
+          </button>
+        )}
       </form>
 
       <div className="auth-switcher">

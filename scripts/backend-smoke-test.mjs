@@ -5,6 +5,8 @@ import crypto from 'node:crypto';
 import assert from 'node:assert/strict';
 import bcrypt from 'bcryptjs';
 
+import { hashPassword } from '../api/_lib/auth.js';
+import { getStore } from '../api/_lib/store.js';
 import health from '../api/health.js';
 import register from '../api/auth/register.js';
 import login from '../api/auth/login.js';
@@ -21,11 +23,9 @@ process.env.ALLOW_TEST_AI = 'true';
 process.env.ALLOW_TEST_PAYMENTS = 'true';
 process.env.LOCAL_DB_PATH = path.join(process.cwd(), '.data', `backend-smoke-${Date.now()}.json`);
 const ownerInvite = `test-caren-${crypto.randomBytes(24).toString('base64url')}`;
+const collaboratorInvite = `test-ruan-${crypto.randomBytes(24).toString('base64url')}`;
 process.env.PRIVATE_CAREN_INVITE_HASH = bcrypt.hashSync(ownerInvite, 4);
-process.env.PRIVATE_RUAN_INVITE_HASH = bcrypt.hashSync(
-  `test-ruan-${crypto.randomBytes(24).toString('base64url')}`,
-  4
-);
+process.env.PRIVATE_RUAN_INVITE_HASH = bcrypt.hashSync(collaboratorInvite, 4);
 
 await fs.rm(process.env.LOCAL_DB_PATH, { force: true });
 
@@ -97,6 +97,41 @@ const unknownLoginResult = await call(login, 'POST', {
   password
 });
 assert.equal(unknownLoginResult.status, 401);
+
+const legacyEmail = `legacy-ruan-${Date.now()}@codego.app`;
+const legacyPassword = `Legacy-${crypto.randomBytes(18).toString('base64url')}`;
+const store = await getStore();
+await store.createUser({
+  name: 'Legacy account',
+  email: legacyEmail,
+  passwordHash: await hashPassword(legacyPassword),
+  planId: 'starter'
+});
+
+const activationRequiredResult = await call(login, 'POST', {
+  email: legacyEmail,
+  password: legacyPassword
+});
+assert.equal(activationRequiredResult.status, 403);
+assert.equal(activationRequiredResult.payload.code, 'PRIVATE_ACCESS_REQUIRED');
+assert.equal(activationRequiredResult.payload.activationRequired, true);
+
+const legacyActivationResult = await call(register, 'POST', {
+  email: legacyEmail,
+  password: legacyPassword,
+  inviteCode: collaboratorInvite
+});
+assert.equal(legacyActivationResult.status, 200);
+assert.equal(legacyActivationResult.payload.user.email, legacyEmail);
+assert.equal(legacyActivationResult.payload.user.name, 'Ruan Thomas');
+assert.equal(legacyActivationResult.payload.user.accessRole, 'admin');
+
+const activatedLegacyLoginResult = await call(login, 'POST', {
+  email: legacyEmail,
+  password: legacyPassword
+});
+assert.equal(activatedLegacyLoginResult.status, 200);
+assert.equal(activatedLegacyLoginResult.payload.user.name, 'Ruan Thomas');
 
 const loginResult = await call(login, 'POST', { email, password });
 assert.equal(loginResult.status, 200);

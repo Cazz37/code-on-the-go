@@ -47,15 +47,16 @@ import {
   X
 } from 'lucide-react';
 import './styles.css';
+import VibeCoreScreen from './vibecore/VibeCoreScreen.jsx';
 
 registerSW({ immediate: true });
 
 const screens = [
   { id: 'home', label: 'Home', icon: Home },
+  { id: 'vibecore', label: 'Build', icon: Layers3 },
   { id: 'code', label: 'Code', icon: Code2 },
   { id: 'preview', label: 'Preview', icon: Smartphone },
-  { id: 'files', label: 'Files', icon: FolderKanban },
-  { id: 'settings', label: 'Settings', icon: Settings }
+  { id: 'files', label: 'Files', icon: FolderKanban }
 ];
 
 const quickActions = [
@@ -66,6 +67,7 @@ const quickActions = [
 
 const featureMenuItems = [
   { id: 'home', label: 'Home', icon: Home },
+  { id: 'vibecore', label: 'VibeCore Builder', icon: Layers3 },
   { id: 'newProject', label: 'New Project', icon: FilePlus2 },
   { id: 'code', label: 'Code Editor', icon: Code2 },
   { id: 'preview', label: 'Preview', icon: Smartphone },
@@ -1743,6 +1745,89 @@ function App() {
     return { ok: true };
   };
 
+  const handleVibeCoreCompile = async (compilation) => {
+    const createdAt = getNow();
+    const generatedFiles = compilation.files.map((output) =>
+      createWorkspaceFile({
+        id: createId('vibecore-file'),
+        name: output.path,
+        type: output.type,
+        language: output.language,
+        library: output.library,
+        code: output.content,
+        createdAt
+      })
+    );
+    const activeFile =
+      generatedFiles.find((file) => file.name === compilation.primaryFile) ??
+      generatedFiles[0];
+    const compactBuild = {
+      ...compilation,
+      files: compilation.files.map(({ content, ...file }) => file)
+    };
+    const nextWorkspace = normalizeWorkspace({
+      ...workspace,
+      projectName: compilation.blueprint.name,
+      language: activeFile.language,
+      library: activeFile.library,
+      fileName: activeFile.name,
+      code: activeFile.code,
+      files: generatedFiles,
+      activeFileId: activeFile.id,
+      lastPrompt: compilation.blueprint.brief,
+      vibecore: {
+        blueprint: compilation.blueprint,
+        lastBuild: compactBuild
+      }
+    });
+
+    setAppData((current) => ({
+      ...current,
+      workspace: nextWorkspace
+    }));
+    appendActivity({
+      type: 'vibecore',
+      message:
+        'VibeCore compiled ' +
+        compilation.blueprint.name +
+        ' into ' +
+        generatedFiles.length +
+        ' files.'
+    });
+
+    if (currentSettings.cloudSync) {
+      const syncResult = await syncWorkspace(nextWorkspace);
+      return {
+        ok: true,
+        message: syncResult.ok
+          ? 'Blueprint compiled into ' + generatedFiles.length + ' files and synced.'
+          : 'Blueprint compiled locally. ' + syncResult.message
+      };
+    }
+
+    return {
+      ok: true,
+      message:
+        'Blueprint compiled into ' +
+        generatedFiles.length +
+        ' project files on this device.'
+    };
+  };
+
+  const handleOpenVibeCoreFile = (fileName, destination = 'code') => {
+    const file = workspace.files.find((candidate) => candidate.name === fileName);
+    if (!file) return;
+
+    updateWorkspace({
+      activeFileId: file.id,
+      language: file.language,
+      library: file.library,
+      fileName: file.name,
+      code: file.code
+    });
+    setActiveScreen(destination);
+  };
+
   return (
     <main className={`app theme-${currentSettings.accent} density-${currentSettings.density} editor-${currentSettings.editorSize} ${currentSettings.glass ? 'glass-on' : 'glass-off'}`}>
       <div className="ambient ambient-one" />
@@ -1779,14 +1864,17 @@ function App() {
               onOpenScreen={setActiveScreen}
               onInstallApp={handleInstallApp}
               onCloseInstallSheet={() => setInstallSheetOpen(false)}
-              onNewProject={() => {
-                setReturnView('app');
-                setActiveView('newProject');
-              }}
               onViewTerms={() => {
                 setReturnView('app');
                 setActiveView('terms');
               }}
+            />
+          )}
+          {activeView === 'app' && activeScreen === 'vibecore' && (
+            <VibeCoreScreen
+              workspace={workspace}
+              onCompile={handleVibeCoreCompile}
+              onOpenFile={handleOpenVibeCoreFile}
             />
           )}
           {activeView === 'app' && activeScreen === 'code' && (
@@ -2815,12 +2903,11 @@ function HomeScreen({
   onOpenScreen,
   onInstallApp,
   onCloseInstallSheet,
-  onNewProject,
   onViewTerms
 }) {
   const recentActivity = activity[0];
   const actions = [
-    { id: 'newProject', title: 'New Project', meta: 'Start clean', icon: FilePlus2, action: onNewProject },
+    { id: 'vibecore', title: 'VibeCore', meta: 'Build by rules', icon: Layers3 },
     { id: 'code', title: 'Code', meta: 'Edit manually', icon: Code2 },
     { id: 'preview', title: 'Preview', meta: 'View the app', icon: Smartphone }
   ];
@@ -2893,7 +2980,7 @@ function HomeScreen({
         </span>
         <div>
           <h2>Build software from your phone</h2>
-          <p>Edit code, use Smart Assistance, preview your work, and keep projects organized in one calm workspace.</p>
+          <p>Turn a guided brief into tested project files with VibeCore, then edit and preview everything in one calm workspace.</p>
         </div>
       </article>
 

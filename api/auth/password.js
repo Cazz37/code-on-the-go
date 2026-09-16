@@ -50,17 +50,34 @@ async function recoverPassword(req, res) {
   const invite = await matchPrivateInvite(recoveryCode);
   const store = await getStore();
   const user = await store.findUserByEmail(normalizedEmail);
+  const claimedUser = invite ? await store.findUserByAccessSlot(invite.id) : null;
 
-  if (!invite || !user || !hasPrivateAccess(user) || user.accessSlot !== invite.id) {
+  if (
+    !invite ||
+    !user ||
+    (claimedUser && claimedUser.id !== user.id) ||
+    (user.accessSlot && user.accessSlot !== invite.id)
+  ) {
     sendError(res, 403, 'Those recovery details do not match an approved private account.');
     return;
   }
 
-  const updatedUser = await store.updatePassword(user.id, await hashPassword(newPassword));
-  await store.addActivity(user.id, 'password-recovered', `${user.name} securely reset the account password.`);
-  const workspace = await store.getWorkspace(user.id);
-  const activity = await store.listActivity(user.id);
-  const aiKeyConfigured = await store.hasOpenAiKey(user.id);
+  let recoveryUser = user;
+  if (!hasPrivateAccess(user) || user.accessSlot !== invite.id) {
+    recoveryUser = await store.updateUser(user.id, {
+      name: invite.label,
+      accessRole: invite.role,
+      accessSlot: invite.id,
+      subscriptionStatus: 'private'
+    });
+    await store.addActivity(user.id, 'access-activated', `${invite.label} activated private access during recovery.`);
+  }
+
+  const updatedUser = await store.updatePassword(recoveryUser.id, await hashPassword(newPassword));
+  await store.addActivity(recoveryUser.id, 'password-recovered', `${recoveryUser.name} securely reset the account password.`);
+  const workspace = await store.getWorkspace(recoveryUser.id);
+  const activity = await store.listActivity(recoveryUser.id);
+  const aiKeyConfigured = await store.hasOpenAiKey(recoveryUser.id);
 
   sendJson(
     res,

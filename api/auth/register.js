@@ -10,8 +10,8 @@ export default async function handler(req, res) {
     const { email = '', password = '', inviteCode = '' } = await readJson(req);
     const normalizedEmail = email.trim().toLowerCase();
 
-    if (!normalizedEmail || password.length < 12 || !inviteCode.trim()) {
-      sendError(res, 400, 'Invite code, email, and a password of at least 12 characters are required.');
+    if (!normalizedEmail || !password || !inviteCode.trim()) {
+      sendError(res, 400, 'Invite code, email, and password are required.');
       return;
     }
 
@@ -53,6 +53,11 @@ export default async function handler(req, res) {
         { ok: true, user: publicUser({ ...user, aiKeyConfigured: await store.hasOpenAiKey(user.id) }), workspace, activity },
         { 'Set-Cookie': createSessionCookie(user) }
       );
+      return;
+    }
+
+    if (password.length < 12) {
+      sendError(res, 400, 'Use a password of at least 12 characters for a new private account.');
       return;
     }
 

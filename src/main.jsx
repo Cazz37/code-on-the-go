@@ -1171,10 +1171,6 @@ function App() {
       return { ok: false, message: 'Add your invitation code, email, and password.' };
     }
 
-    if (password.length < 12) {
-      return { ok: false, message: 'Use at least 12 characters for the password.' };
-    }
-
     if (password !== confirmPassword) {
       return { ok: false, message: 'Passwords must match.' };
     }
@@ -2389,7 +2385,7 @@ function PasswordRecoveryScreen({ onBack, onRecover }) {
           Secure recovery
         </span>
         <h2>Reset password</h2>
-        <p>Use the private recovery code assigned to your administrator account.</p>
+        <p>Use the private recovery code assigned to your administrator account. This also activates older accounts.</p>
       </div>
 
       <form className="auth-card" onSubmit={submitRecovery}>

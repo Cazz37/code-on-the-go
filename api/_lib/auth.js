@@ -32,7 +32,8 @@ export function createSessionCookie(user) {
   const token = jwt.sign(
     {
       sub: user.id,
-      email: user.email
+      email: user.email,
+      sv: user.sessionVersion ?? 0
     },
     getJwtSecret(),
     {
@@ -88,6 +89,10 @@ export async function requireUser(req, store) {
   }
 
   const user = await store.findUserById(session.sub);
+  if ((session.sv ?? 0) !== (user?.sessionVersion ?? 0)) {
+    return null;
+  }
+
   return hasPrivateAccess(user) ? user : null;
 }
 

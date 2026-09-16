@@ -1196,6 +1196,62 @@ function App() {
     }
   };
 
+  const handlePasswordRecovery = async ({ email, recoveryCode, newPassword, confirmPassword }) => {
+    const normalizedEmail = normalizeEmail(email);
+
+    if (!normalizedEmail || !recoveryCode.trim() || !newPassword) {
+      return { ok: false, message: 'Add your email, private recovery code, and new password.' };
+    }
+
+    if (newPassword.length < 12) {
+      return { ok: false, message: 'Use at least 12 characters for the new password.' };
+    }
+
+    if (newPassword !== confirmPassword) {
+      return { ok: false, message: 'The new passwords must match.' };
+    }
+
+    try {
+      const payload = await apiRequest('/api/auth/password', {
+        method: 'POST',
+        body: JSON.stringify({
+          email: normalizedEmail,
+          recoveryCode: recoveryCode.trim(),
+          newPassword
+        })
+      });
+      applyServerSession(payload);
+      enterApp();
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, message: error.message };
+    }
+  };
+
+  const handlePasswordChange = async ({ currentPassword, newPassword, confirmPassword }) => {
+    if (!currentPassword || !newPassword) {
+      return { ok: false, message: 'Enter your current password and a new password.' };
+    }
+
+    if (newPassword.length < 12) {
+      return { ok: false, message: 'Use at least 12 characters for the new password.' };
+    }
+
+    if (newPassword !== confirmPassword) {
+      return { ok: false, message: 'The new passwords must match.' };
+    }
+
+    try {
+      const payload = await apiRequest('/api/auth/password', {
+        method: 'PUT',
+        body: JSON.stringify({ currentPassword, newPassword })
+      });
+      return { ok: true, message: payload.message };
+    } catch (error) {
+      return { ok: false, message: error.message };
+    }
+  };
+
   const handleCheckout = async ({ planId, provider, payment }) => {
     const plan = getPlan(planId);
     const createdAt = getNow();
@@ -1819,6 +1875,10 @@ function App() {
               notice={sessionMessage}
               onLogin={handleLogin}
               onActivate={handleRegister}
+              onForgotPassword={() => {
+                setSessionMessage('');
+                setActiveView('recover');
+              }}
               onRegister={() => {
                 setSessionMessage('');
                 setActiveView('register');
@@ -1829,6 +1889,12 @@ function App() {
             <RegisterScreen
               onLogin={() => setActiveView('login')}
               onCreate={handleRegister}
+            />
+          )}
+          {activeView === 'recover' && (
+            <PasswordRecoveryScreen
+              onBack={() => setActiveView('login')}
+              onRecover={handlePasswordRecovery}
             />
           )}
           {activeView === 'terms' && (
@@ -1893,6 +1959,7 @@ function App() {
             <SettingsScreen
               user={currentUser}
               onSave={handleProfileSave}
+              onChangePassword={handlePasswordChange}
               onSignOut={handleSignOut}
               onViewTerms={() => {
                 setReturnView('app');
@@ -2066,7 +2133,7 @@ function AccessLoadingScreen() {
   );
 }
 
-function LoginScreen({ onLogin, onActivate, onRegister, notice = '' }) {
+function LoginScreen({ onLogin, onActivate, onForgotPassword, onRegister, notice = '' }) {
   const [form, setForm] = React.useState({ email: '', password: '', inviteCode: '' });
   const [error, setError] = React.useState('');
   const [busy, setBusy] = React.useState(false);
@@ -2144,6 +2211,11 @@ function LoginScreen({ onLogin, onActivate, onRegister, notice = '' }) {
           placeholder="Enter password"
           actionIcon={Eye}
         />
+        {!activationRequired && (
+          <div className="password-help-row">
+            <button type="button" onClick={onForgotPassword}>Forgot password?</button>
+          </div>
+        )}
         {activationRequired && (
           <div className="inline-activation">
             <p>
@@ -2278,6 +2350,108 @@ function RegisterScreen({ onLogin, onCreate }) {
       <div className="auth-switcher">
         <span>Already activated?</span>
         <button type="button" onClick={onLogin}>Sign in</button>
+      </div>
+    </section>
+  );
+}
+
+function PasswordRecoveryScreen({ onBack, onRecover }) {
+  const [form, setForm] = React.useState({
+    email: '',
+    recoveryCode: '',
+    newPassword: '',
+    confirmPassword: ''
+  });
+  const [error, setError] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
+
+  const updateField = (event) => {
+    setError('');
+    setForm((current) => ({ ...current, [event.target.name]: event.target.value }));
+  };
+
+  const submitRecovery = async (event) => {
+    event.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    const result = await onRecover(form);
+    setBusy(false);
+    if (!result.ok) {
+      setError(result.message);
+    }
+  };
+
+  return (
+    <section className="screen auth-screen">
+      <div className="auth-intro">
+        <span className="pill auth-pill">
+          <KeyRound size={14} />
+          Secure recovery
+        </span>
+        <h2>Reset password</h2>
+        <p>Use the private recovery code assigned to your administrator account.</p>
+      </div>
+
+      <form className="auth-card" onSubmit={submitRecovery}>
+        <InputField
+          icon={Mail}
+          label="Account email"
+          name="email"
+          type="text"
+          inputMode="email"
+          autoCapitalize="none"
+          autoComplete="email"
+          value={form.email}
+          onChange={updateField}
+          placeholder="you@example.com"
+        />
+        <InputField
+          icon={KeyRound}
+          label="Private recovery code"
+          name="recoveryCode"
+          type="text"
+          autoCapitalize="none"
+          autoComplete="off"
+          value={form.recoveryCode}
+          onChange={updateField}
+          placeholder="COTG-…"
+        />
+        <InputField
+          icon={LockKeyhole}
+          label="New password"
+          name="newPassword"
+          type="password"
+          autoComplete="new-password"
+          value={form.newPassword}
+          onChange={updateField}
+          placeholder="At least 12 characters"
+          actionIcon={Eye}
+        />
+        <InputField
+          icon={LockKeyhole}
+          label="Confirm new password"
+          name="confirmPassword"
+          type="password"
+          autoComplete="new-password"
+          value={form.confirmPassword}
+          onChange={updateField}
+          placeholder="Repeat new password"
+          actionIcon={Eye}
+        />
+        <div className="private-access-note">
+          <ShieldCheck size={15} />
+          <span>A successful reset signs you in and closes any older sessions for this account.</span>
+        </div>
+        {error && <FormMessage message={error} />}
+        <button className="primary-action" type="submit" disabled={busy}>
+          {busy ? 'Resetting…' : 'Reset & Sign In'}
+          <ArrowRight size={18} />
+        </button>
+      </form>
+
+      <div className="auth-switcher">
+        <span>Remembered your password?</span>
+        <button type="button" onClick={onBack}>Back to sign in</button>
       </div>
     </section>
   );
@@ -2855,13 +3029,20 @@ function NewProjectScreen({ workspace, onBack, onCreate }) {
   );
 }
 
-function SettingsScreen({ user, onSave, onViewTerms, onSignOut }) {
+function SettingsScreen({ user, onSave, onChangePassword, onViewTerms, onSignOut }) {
   const userSettings = user?.settings ?? defaultUserSettings;
   const [settings, setSettings] = React.useState({
     ...defaultUserSettings,
     ...userSettings
   });
   const [message, setMessage] = React.useState('');
+  const [passwordForm, setPasswordForm] = React.useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: ''
+  });
+  const [passwordMessage, setPasswordMessage] = React.useState('');
+  const [passwordBusy, setPasswordBusy] = React.useState(false);
   const frameworks = libraryOptions[settings.defaultLanguage] ?? libraryOptions.javascript;
 
   const update = (key, value) => {
@@ -2880,6 +3061,23 @@ function SettingsScreen({ user, onSave, onViewTerms, onSignOut }) {
       settings
     });
     setMessage(result.message);
+  };
+
+  const updatePasswordField = (event) => {
+    setPasswordMessage('');
+    setPasswordForm((current) => ({ ...current, [event.target.name]: event.target.value }));
+  };
+
+  const changePassword = async (event) => {
+    event.preventDefault();
+    if (passwordBusy) return;
+    setPasswordBusy(true);
+    const result = await onChangePassword(passwordForm);
+    setPasswordBusy(false);
+    setPasswordMessage(result.message);
+    if (result.ok) {
+      setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+    }
   };
 
   return (
@@ -2937,6 +3135,52 @@ function SettingsScreen({ user, onSave, onViewTerms, onSignOut }) {
           <Check size={18} />
         </button>
       </div>
+
+      <form className="settings-card password-settings-card" onSubmit={changePassword}>
+        <div>
+          <p className="eyebrow">Account security</p>
+          <h3>Change password</h3>
+          <span>Changing it closes any other sessions using your account.</span>
+        </div>
+        <InputField
+          icon={LockKeyhole}
+          label="Current password"
+          name="currentPassword"
+          type="password"
+          autoComplete="current-password"
+          value={passwordForm.currentPassword}
+          onChange={updatePasswordField}
+          placeholder="Enter current password"
+          actionIcon={Eye}
+        />
+        <InputField
+          icon={KeyRound}
+          label="New password"
+          name="newPassword"
+          type="password"
+          autoComplete="new-password"
+          value={passwordForm.newPassword}
+          onChange={updatePasswordField}
+          placeholder="At least 12 characters"
+          actionIcon={Eye}
+        />
+        <InputField
+          icon={ShieldCheck}
+          label="Confirm new password"
+          name="confirmPassword"
+          type="password"
+          autoComplete="new-password"
+          value={passwordForm.confirmPassword}
+          onChange={updatePasswordField}
+          placeholder="Repeat new password"
+          actionIcon={Eye}
+        />
+        {passwordMessage && <FormMessage message={passwordMessage} />}
+        <button className="secondary-action" type="submit" disabled={passwordBusy}>
+          {passwordBusy ? 'Changing…' : 'Change Password'}
+          <KeyRound size={17} />
+        </button>
+      </form>
 
       <div className="settings-card account-settings-card">
         <div>

@@ -10,6 +10,8 @@ import { getStore } from '../api/_lib/store.js';
 import health from '../api/health.js';
 import register from '../api/auth/register.js';
 import login from '../api/auth/login.js';
+import changePassword from '../api/auth/password.js';
+import recoverPassword from '../api/auth/password.js';
 import me from '../api/me.js';
 import profile from '../api/profile.js';
 import workspace from '../api/workspace.js';
@@ -132,6 +134,39 @@ const activatedLegacyLoginResult = await call(login, 'POST', {
 });
 assert.equal(activatedLegacyLoginResult.status, 200);
 assert.equal(activatedLegacyLoginResult.payload.user.name, 'Ruan Thomas');
+const legacyCookie = activatedLegacyLoginResult.headers['set-cookie'];
+
+const mismatchedRecoveryResult = await call(recoverPassword, 'POST', {
+  email: legacyEmail,
+  recoveryCode: ownerInvite,
+  newPassword: `Wrong-slot-${crypto.randomBytes(18).toString('base64url')}`
+});
+assert.equal(mismatchedRecoveryResult.status, 403);
+
+const recoveredLegacyPassword = `Recovered-${crypto.randomBytes(18).toString('base64url')}`;
+const recoveryResult = await call(recoverPassword, 'POST', {
+  email: legacyEmail,
+  recoveryCode: collaboratorInvite,
+  newPassword: recoveredLegacyPassword
+});
+assert.equal(recoveryResult.status, 200);
+assert.equal(recoveryResult.payload.user.name, 'Ruan Thomas');
+assert.ok(recoveryResult.headers['set-cookie']);
+
+const invalidatedLegacySessionResult = await call(me, 'GET', undefined, { cookie: legacyCookie });
+assert.equal(invalidatedLegacySessionResult.status, 401);
+
+const oldLegacyPasswordResult = await call(login, 'POST', {
+  email: legacyEmail,
+  password: legacyPassword
+});
+assert.equal(oldLegacyPasswordResult.status, 401);
+
+const recoveredLegacyLoginResult = await call(login, 'POST', {
+  email: legacyEmail,
+  password: recoveredLegacyPassword
+});
+assert.equal(recoveredLegacyLoginResult.status, 200);
 
 const loginResult = await call(login, 'POST', { email, password });
 assert.equal(loginResult.status, 200);
@@ -139,7 +174,34 @@ assert.equal(loginResult.payload.user.email, email);
 const cookie = loginResult.headers['set-cookie'];
 assert.ok(cookie);
 
-const authHeaders = { cookie };
+let authHeaders = { cookie };
+
+const incorrectPasswordChangeResult = await call(changePassword, 'PUT', {
+  currentPassword: 'not-the-current-password',
+  newPassword: `Rejected-${crypto.randomBytes(18).toString('base64url')}`
+}, authHeaders);
+assert.equal(incorrectPasswordChangeResult.status, 401);
+
+const changedOwnerPassword = `Changed-${crypto.randomBytes(18).toString('base64url')}`;
+const passwordChangeResult = await call(changePassword, 'PUT', {
+  currentPassword: password,
+  newPassword: changedOwnerPassword
+}, authHeaders);
+assert.equal(passwordChangeResult.status, 200);
+assert.ok(passwordChangeResult.headers['set-cookie']);
+
+const invalidatedOwnerSessionResult = await call(me, 'GET', undefined, authHeaders);
+assert.equal(invalidatedOwnerSessionResult.status, 401);
+
+const oldOwnerPasswordResult = await call(login, 'POST', { email, password });
+assert.equal(oldOwnerPasswordResult.status, 401);
+
+const changedOwnerLoginResult = await call(login, 'POST', {
+  email,
+  password: changedOwnerPassword
+});
+assert.equal(changedOwnerLoginResult.status, 200);
+authHeaders = { cookie: changedOwnerLoginResult.headers['set-cookie'] };
 
 const meResult = await call(me, 'GET', undefined, authHeaders);
 assert.equal(meResult.status, 200);

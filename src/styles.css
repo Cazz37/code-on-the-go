@@ -562,6 +562,20 @@ h1 {
   color: var(--violet);
 }
 
+.password-help-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: -4px;
+}
+
+.password-help-row button {
+  padding: 2px 0;
+  color: var(--violet);
+  background: transparent;
+  font-size: 0.8rem;
+  font-weight: 850;
+}
+
 .inline-activation {
   display: grid;
   gap: 11px;
@@ -676,6 +690,28 @@ h1 {
   color: var(--muted);
   font-size: 0.86rem;
   font-weight: 750;
+}
+
+.password-settings-card {
+  display: grid;
+  gap: 13px;
+}
+
+.password-settings-card > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.password-settings-card h3,
+.password-settings-card p,
+.password-settings-card span {
+  margin: 0;
+}
+
+.password-settings-card > div:first-child > span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
 }
 
 .mini-plan {

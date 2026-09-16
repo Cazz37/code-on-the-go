@@ -102,12 +102,14 @@ async function ensurePostgresSchema() {
       subscription_status TEXT NOT NULL DEFAULT 'inactive',
       access_role TEXT,
       access_slot TEXT,
+      session_version INTEGER NOT NULL DEFAULT 0,
       settings JSONB NOT NULL DEFAULT '{}'::jsonb,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     ALTER TABLE users ADD COLUMN IF NOT EXISTS access_role TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS access_slot TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS session_version INTEGER NOT NULL DEFAULT 0;
     CREATE UNIQUE INDEX IF NOT EXISTS users_access_slot_unique
       ON users(access_slot)
       WHERE access_slot IS NOT NULL;
@@ -186,6 +188,7 @@ function mapPgUser(row) {
     subscriptionStatus: row.subscription_status,
     accessRole: row.access_role,
     accessSlot: row.access_slot,
+    sessionVersion: row.session_version ?? 0,
     settings: {
       ...defaultUserSettings,
       ...(row.settings ?? {})
@@ -201,6 +204,7 @@ function mapFileUser(user) {
 
   return {
     ...user,
+    sessionVersion: user.sessionVersion ?? 0,
     settings: {
       ...defaultUserSettings,
       ...(user.settings ?? {})
@@ -254,6 +258,7 @@ function createPostgresStore(db) {
         subscriptionStatus: accessRole ? 'private' : planId === 'starter' ? 'active' : 'pending',
         accessRole,
         accessSlot,
+        sessionVersion: 0,
         settings: defaultUserSettings,
         createdAt: now()
       };
@@ -308,6 +313,16 @@ function createPostgresStore(db) {
         ]
       );
       return next;
+    },
+    async updatePassword(id, passwordHash) {
+      const result = await db.query(
+        `UPDATE users
+         SET password_hash = $2, session_version = session_version + 1
+         WHERE id = $1
+         RETURNING *`,
+        [id, passwordHash]
+      );
+      return mapPgUser(result.rows[0]);
     },
     async getWorkspace(userId) {
       const result = await db.query('SELECT data FROM workspaces WHERE user_id = $1', [userId]);
@@ -455,6 +470,7 @@ function createFileStore() {
         subscriptionStatus: accessRole ? 'private' : planId === 'starter' ? 'active' : 'pending',
         accessRole,
         accessSlot,
+        sessionVersion: 0,
         settings: defaultUserSettings,
         createdAt: now()
       };
@@ -473,6 +489,20 @@ function createFileStore() {
           ...defaultUserSettings,
           ...(patch.settings ?? state.users[index].settings ?? {})
         }
+      };
+      await saveFileState(state);
+      return mapFileUser(state.users[index]);
+    },
+    async updatePassword(id, passwordHash) {
+      const state = await loadFileState();
+      const index = state.users.findIndex((user) => user.id === id);
+      if (index < 0) {
+        return null;
+      }
+      state.users[index] = {
+        ...state.users[index],
+        passwordHash,
+        sessionVersion: (state.users[index].sessionVersion ?? 0) + 1
       };
       await saveFileState(state);
       return mapFileUser(state.users[index]);

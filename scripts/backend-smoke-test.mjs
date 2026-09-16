@@ -101,7 +101,7 @@ const unknownLoginResult = await call(login, 'POST', {
 assert.equal(unknownLoginResult.status, 401);
 
 const legacyEmail = `legacy-ruan-${Date.now()}@codego.app`;
-const legacyPassword = `Legacy-${crypto.randomBytes(18).toString('base64url')}`;
+const legacyPassword = 'Legacy-pass';
 const store = await getStore();
 await store.createUser({
   name: 'Legacy account',
@@ -257,5 +257,24 @@ const checkoutResult = await call(checkoutCreate, 'POST', {
 }, authHeaders);
 assert.equal(checkoutResult.status, 200);
 assert.equal(checkoutResult.payload.mode, 'test_paid');
+
+process.env.LOCAL_DB_PATH = path.join(process.cwd(), '.data', `backend-recovery-${Date.now()}.json`);
+await fs.rm(process.env.LOCAL_DB_PATH, { force: true });
+const recoveryOnlyStore = await getStore();
+const recoveryOnlyEmail = `recovery-only-${Date.now()}@codego.app`;
+await recoveryOnlyStore.createUser({
+  name: 'Unactivated legacy account',
+  email: recoveryOnlyEmail,
+  passwordHash: await hashPassword('old-short'),
+  planId: 'starter'
+});
+const recoveryActivatesLegacyResult = await call(recoverPassword, 'POST', {
+  email: recoveryOnlyEmail,
+  recoveryCode: collaboratorInvite,
+  newPassword: `Recovered-${crypto.randomBytes(18).toString('base64url')}`
+});
+assert.equal(recoveryActivatesLegacyResult.status, 200);
+assert.equal(recoveryActivatesLegacyResult.payload.user.name, 'Ruan Thomas');
+assert.equal(recoveryActivatesLegacyResult.payload.user.accessRole, 'admin');
 
 console.log('Backend smoke tests passed');
